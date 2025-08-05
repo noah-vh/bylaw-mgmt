@@ -1,0 +1,26 @@
+# Offline-only dependencies for bylaw management scrapers
+# All Redis/SSE dependencies have been removed for local operation
+
+# Core web scraping
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+
+# PDF text extraction libraries
+PyPDF2>=3.0.1
+pdfplumber>=0.9.0
+
+# Data processing and utilities
+python-dateutil>=2.8.0
+
+# Additional utilities (optional but recommended)
+chardet>=5.2.0           # Character encoding detection
+urllib3>=2.0.0          # HTTP library with connection pooling
+
+# Development and testing (optional)
+pytest>=7.4.0           # Testing framework
+pytest-cov>=4.1.0       # Coverage reporting
+black>=23.7.0           # Code formatting
+flake8>=6.0.0           # Linting
+# Supabase integration
+supabase>=2.0.0

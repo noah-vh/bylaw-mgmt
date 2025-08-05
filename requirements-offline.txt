@@ -1,0 +1,24 @@
+# Core PDF processing (offline-only requirements)
+PyPDF2==3.0.1
+pdfplumber==0.10.3
+Pillow==10.0.1
+
+# Database connectivity
+psycopg2-binary==2.9.7
+
+# Text processing
+beautifulsoup4==4.12.2
+lxml==4.9.3
+requests==2.31.0
+
+# Utilities
+python-dotenv==1.0.0
+pathlib==1.0.1
+
+# Optional: Better PDF handling
+pymupdf4llm==0.0.5
+pymupdf==1.23.8
+
+# Note: This setup is designed for OFFLINE operations only
+# No AI/ML dependencies, no cloud services, no external APIs
+# All processing is done locally using rule-based algorithms
