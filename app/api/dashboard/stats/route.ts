@@ -74,11 +74,11 @@ export async function GET(request: NextRequest) {
     const recentActivity = (recentActivityResult.data || []).map(log => ({
       id: `scrape_${log.id}`,
       type: 'scrape' as const,
-      message: `Scraping ${log.status} for ${log.municipalities?.name || 'Unknown'}`,
+      message: `Scraping ${log.status} for ${Array.isArray(log.municipalities) ? log.municipalities[0]?.name : log.municipalities?.name || 'Unknown'}`,
       timestamp: log.scrape_date,
       status: log.status === 'success' ? 'success' : log.status === 'error' ? 'error' : 'warning',
       municipalityId: log.municipality_id,
-      municipalityName: log.municipalities?.name
+      municipalityName: Array.isArray(log.municipalities) ? log.municipalities[0]?.name : log.municipalities?.name
     }))
 
     return NextResponse.json({

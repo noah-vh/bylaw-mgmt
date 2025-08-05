@@ -126,10 +126,11 @@ async function fetchScraperById(scraperId: ScraperId) {
 // POST /api/scrapers/test/[id] - Test individual scraper by ID and update database
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const scraperId = parseInt(params.id) as ScraperId
+    const { id } = await params
+    const scraperId = parseInt(id) as ScraperId
     
     if (isNaN(scraperId) || scraperId <= 0) {
       return NextResponse.json(
