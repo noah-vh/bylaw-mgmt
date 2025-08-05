@@ -13,23 +13,10 @@ import {
   Trash2, 
   Eye, 
   Calendar,
-  Clock,
-  CheckCircle,
-  AlertCircle,
   Grid3x3,
   List,
   RefreshCw,
-  Settings,
-  Bell,
-  Key,
-  Play,
-  Download,
-  FileText,
-  Brain,
-  Square,
-  Pause,
-  Activity,
-  ChevronDown
+  Settings
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -67,53 +54,14 @@ import { Checkbox } from "@/components/ui/checkbox"
 
 import { useMunicipalitySearch, useCreateMunicipality, useUpdateMunicipality, useDeleteMunicipality } from "@/hooks/use-municipalities"
 import { format } from "date-fns"
-import type { Municipality, MunicipalityStatus, createMunicipalityId } from "@/types/database"
-import { ProcessingStatusBadge, MunicipalityProcessingOverview } from "@/components/processing-status"
-import type { ProcessingJob } from "@/components/processing-status"
-import { MunicipalityPipelineDashboard } from "@/components/municipality-pipeline-dashboard"
-import { usePipelinePhase, useBulkPipelineOperations, type PipelinePhase } from "@/hooks/use-pipeline"
+import type { Municipality, MunicipalityStatus, ScheduleFrequency } from "@/types/database"
+import { createMunicipalityId, createDocumentId } from "@/types/database"
 
 export default function MunicipalitiesPage() {
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('table')
   const [selectedMunicipalities, setSelectedMunicipalities] = useState<number[]>([])
   const [editingMunicipality, setEditingMunicipality] = useState<Municipality | null>(null)
   const [deletingMunicipality, setDeletingMunicipality] = useState<Municipality | null>(null)
-  const [showProcessingOverview, setShowProcessingOverview] = useState(true)
-  const [showPipelineDashboard, setShowPipelineDashboard] = useState(false)
-  
-  // Pipeline operations
-  const { runBulkOperation, isRunning: isPipelineRunning } = useBulkPipelineOperations()
-  
-  // Mock processing jobs - would come from backend
-  const mockProcessingJobs: ProcessingJob[] = [
-    {
-      id: '1',
-      municipalityId: 1,
-      municipalityName: 'Toronto',
-      phase: 'scraping',
-      status: 'running',
-      progress: 67,
-      total: 120,
-      startedAt: new Date(Date.now() - 600000),
-      details: {
-        documentsProcessed: 67,
-        documentsTotal: 120,
-        currentDocument: 'Building Code Amendment 445-2024.pdf',
-        estimatedTimeRemaining: 240
-      }
-    },
-    {
-      id: '2',
-      municipalityId: 2, 
-      municipalityName: 'Ottawa',
-      phase: 'extraction',
-      status: 'completed',
-      progress: 43,
-      total: 43,
-      startedAt: new Date(Date.now() - 1800000),
-      completedAt: new Date(Date.now() - 300000)
-    }
-  ]
   
   const {
     data,
@@ -129,46 +77,11 @@ export default function MunicipalitiesPage() {
     updateSearch
   } = useMunicipalitySearch()
 
-  const handleBulkPipelineOperation = async (phase: PipelinePhase) => {
-    if (selectedMunicipalities.length === 0) {
-      alert('Please select municipalities to process')
-      return
-    }
-
-    try {
-      await runBulkOperation(phase, selectedMunicipalities, {
-        skipExisting: false,
-        batchSize: 5,
-        maxRetries: 2
-      })
-      // Refresh data after operation
-      refetch()
-    } catch (error) {
-      console.error(`Failed to run ${phase} operation:`, error)
-      alert(`Failed to run ${phase} operation: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    }
-  }
-
-  const handleSinglePipelineOperation = async (municipalityId: number, phase: PipelinePhase) => {
-    try {
-      await runBulkOperation(phase, [municipalityId], {
-        skipExisting: false,
-        batchSize: 1,
-        maxRetries: 2
-      })
-      // Refresh data after operation
-      refetch()
-    } catch (error) {
-      console.error(`Failed to run ${phase} operation for municipality ${municipalityId}:`, error)
-      alert(`Failed to run ${phase} operation: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    }
-  }
 
   const createMutation = useCreateMunicipality()
   const updateMutation = useUpdateMunicipality()
   const deleteMutation = useDeleteMunicipality()
   
-
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
       setSelectedMunicipalities(data?.data.map(m => m.id) || [])
@@ -184,8 +97,6 @@ export default function MunicipalitiesPage() {
       setSelectedMunicipalities(prev => prev.filter(selectedId => selectedId !== id))
     }
   }
-
-
 
   const handleDelete = async (municipality: Municipality) => {
     try {
@@ -230,16 +141,7 @@ export default function MunicipalitiesPage() {
         </div>
       </div>
 
-      {/* Filters and Search */}
-      {/* Pipeline Dashboard */}
-      {showPipelineDashboard && (
-        <div className="mb-6">
-          <MunicipalityPipelineDashboard 
-            selectedMunicipalities={selectedMunicipalities}
-            onSelectionChange={setSelectedMunicipalities}
-          />
-        </div>
-      )}
+      {/* Filters and Search */
 
       <div className="flex flex-col sm:flex-row gap-4 mb-6">
         <div className="flex-1">
@@ -301,59 +203,8 @@ export default function MunicipalitiesPage() {
             </Button>
           </div>
         </div>
-        
-        {/* Bulk Actions for Selected */}
-        {selectedMunicipalities.length > 0 && (
-          <div className="flex items-center gap-2">
-            <Badge variant="secondary" className="text-xs">
-              {selectedMunicipalities.length} selected
-            </Badge>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" disabled={isPipelineRunning}>
-                  <Play className="mr-2 h-4 w-4" />
-                  Bulk Actions
-                  <ChevronDown className="ml-2 h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuLabel>Pipeline Operations</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem 
-                  onClick={() => handleBulkPipelineOperation('scraping')}
-                  disabled={isPipelineRunning}
-                >
-                  <Download className="mr-2 h-4 w-4" />
-                  Run Scraping Only
-                </DropdownMenuItem>
-                <DropdownMenuItem 
-                  onClick={() => handleBulkPipelineOperation('extraction')}
-                  disabled={isPipelineRunning}
-                >
-                  <FileText className="mr-2 h-4 w-4" />
-                  Run Extraction Only
-                </DropdownMenuItem>
-                <DropdownMenuItem 
-                  onClick={() => handleBulkPipelineOperation('analysis')}
-                  disabled={isPipelineRunning}
-                >
-                  <Brain className="mr-2 h-4 w-4" />
-                  Run Analysis Only
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem 
-                  onClick={() => handleBulkPipelineOperation('complete')}
-                  disabled={isPipelineRunning}
-                >
-                  <CheckCircle className="mr-2 h-4 w-4" />
-                  Run Complete Pipeline
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        )}
       </div>
-
+      }
 
       {/* Content */}
       {viewMode === 'table' ? (
@@ -366,8 +217,6 @@ export default function MunicipalitiesPage() {
           onSort={setSorting}
           onEdit={setEditingMunicipality}
           onDelete={setDeletingMunicipality}
-          onPipelineOperation={handleSinglePipelineOperation}
-          isPipelineRunning={isPipelineRunning}
         />
       ) : (
         <GridView
@@ -452,85 +301,6 @@ export default function MunicipalitiesPage() {
   )
 }
 
-// Pipeline Status Indicator Component
-function PipelineStatusIndicator({ municipality }: { municipality: Municipality }) {
-  // Determine current pipeline phase based on municipality status and data
-  const getPipelinePhase = () => {
-    if (municipality.status === 'running') return 'scraping'
-    if (municipality.status === 'active') return 'complete'
-    if (municipality.status === 'error') return 'error'
-    return 'idle'
-  }
-
-  const phase = getPipelinePhase()
-  
-  return (
-    <div className="flex flex-col gap-1">
-      {phase === 'complete' && (
-        <Badge variant="default" className="text-xs w-fit">
-          <CheckCircle className="h-3 w-3 mr-1" />
-          Complete
-        </Badge>
-      )}
-      {phase === 'scraping' && (
-        <Badge variant="secondary" className="text-xs w-fit animate-pulse">
-          <Download className="h-3 w-3 mr-1" />
-          Scraping
-        </Badge>
-      )}
-      {phase === 'error' && (
-        <Badge variant="destructive" className="text-xs w-fit">
-          <AlertCircle className="h-3 w-3 mr-1" />
-          Error
-        </Badge>
-      )}
-      {phase === 'idle' && (
-        <Badge variant="outline" className="text-xs w-fit">
-          <Clock className="h-3 w-3 mr-1" />
-          Idle
-        </Badge>
-      )}
-      {municipality.lastScrape && (
-        <div className="text-xs text-muted-foreground">
-          Last: {format(new Date(municipality.lastScrape.date), 'MMM d')}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// Scraper Assignment Status Component
-function ScraperAssignmentStatus({ municipality }: { municipality: Municipality }) {
-  const assignedScrapers = municipality.assigned_scrapers || []
-  const activeScraperName = municipality.active_scraper
-  
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-center gap-1">
-        <Badge variant={assignedScrapers.length > 0 ? "default" : "outline"} className="text-xs">
-          {assignedScrapers.length} scraper{assignedScrapers.length !== 1 ? 's' : ''}
-        </Badge>
-      </div>
-      {activeScraperName && (
-        <div className="text-xs text-muted-foreground flex items-center gap-1">
-          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-          Active: {activeScraperName}
-        </div>
-      )}
-      {assignedScrapers.length > 0 && !activeScraperName && (
-        <div className="text-xs text-muted-foreground">
-          {assignedScrapers.slice(0, 2).join(', ')}
-          {assignedScrapers.length > 2 && ` +${assignedScrapers.length - 2} more`}
-        </div>
-      )}
-      {assignedScrapers.length === 0 && (
-        <div className="text-xs text-muted-foreground">
-          No scrapers assigned
-        </div>
-      )}
-    </div>
-  )
-}
 
 // Table view component
 interface TableViewProps {
@@ -542,15 +312,9 @@ interface TableViewProps {
   onSort: (field: string, order: 'asc' | 'desc') => void
   onEdit: (municipality: Municipality) => void
   onDelete: (municipality: Municipality) => void
-  onPipelineOperation?: (municipalityId: number, phase: PipelinePhase) => void
-  isPipelineRunning?: boolean
 }
 
-function TableView({ data, isLoading, selectedMunicipalities, onSelectAll, onSelectMunicipality, onSort, onEdit, onDelete, onPipelineOperation, isPipelineRunning = false }: TableViewProps) {
-  
-  const handleSinglePipelineOperation = (municipalityId: number, phase: PipelinePhase) => {
-    onPipelineOperation?.(municipalityId, phase)
-  }
+function TableView({ data, isLoading, selectedMunicipalities, onSelectAll, onSelectMunicipality, onSort, onEdit, onDelete }: TableViewProps) {
   const [hoveredRow, setHoveredRow] = useState<number | null>(null)
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   
@@ -643,9 +407,9 @@ function TableView({ data, isLoading, selectedMunicipalities, onSelectAll, onSel
                 </TableCell>
                 <TableCell>
                   <div className="text-sm">
-                    <div className="font-medium">{municipality.relevantDocuments || 0} relevant</div>
+                    <div className="font-medium">{municipality.totalDocuments || 0} total</div>
                     <div className="text-xs text-muted-foreground">
-                      {municipality.totalDocuments || 0} total
+                      Documents found
                     </div>
                   </div>
                 </TableCell>
@@ -653,7 +417,7 @@ function TableView({ data, isLoading, selectedMunicipalities, onSelectAll, onSel
                   <div className="text-sm">
                     <div>{municipality.lastScrape?.date ? format(new Date(municipality.lastScrape.date), 'MMM d, yyyy') : 'Never'}</div>
                     <div className="text-xs text-muted-foreground">
-                      {municipality.lastScrape?.documentsNew || 0} new documents
+                      {municipality.lastScrape?.documentsFound || 0} documents found
                     </div>
                   </div>
                 </TableCell>
@@ -684,39 +448,6 @@ function TableView({ data, isLoading, selectedMunicipalities, onSelectAll, onSel
                       <DropdownMenuItem onClick={() => onEdit(municipality)} className="cursor-pointer">
                         <Settings className="mr-2 h-4 w-4" />
                         <span>Edit Settings</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem 
-                        onClick={() => handleSinglePipelineOperation(municipality.id, 'scraping')}
-                        disabled={isPipelineRunning}
-                        className="cursor-pointer"
-                      >
-                        <Download className="mr-2 h-4 w-4" />
-                        <span>Run Scraping</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem 
-                        onClick={() => handleSinglePipelineOperation(municipality.id, 'extraction')}
-                        disabled={isPipelineRunning}
-                        className="cursor-pointer"
-                      >
-                        <FileText className="mr-2 h-4 w-4" />
-                        <span>Run Extraction</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem 
-                        onClick={() => handleSinglePipelineOperation(municipality.id, 'analysis')}
-                        disabled={isPipelineRunning}
-                        className="cursor-pointer"
-                      >
-                        <Brain className="mr-2 h-4 w-4" />
-                        <span>Run Analysis</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem 
-                        onClick={() => handleSinglePipelineOperation(municipality.id, 'complete')}
-                        disabled={isPipelineRunning}
-                        className="cursor-pointer"
-                      >
-                        <CheckCircle className="mr-2 h-4 w-4" />
-                        <span>Complete Pipeline</span>
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem 
@@ -857,7 +588,7 @@ function CreateMunicipalityDialog({ onSuccess }: CreateMunicipalityDialogProps) 
         name: formData.get('name') as string,
         website_url: formData.get('website_url') as string,
         scraper_name: formData.get('scraper_name') as string || null,
-        schedule_frequency: (formData.get('schedule_frequency') as string) || null,
+        schedule_frequency: (formData.get('schedule_frequency') as ScheduleFrequency) || null,
         schedule_active: formData.get('schedule_active') === 'on',
       })
       
@@ -973,7 +704,7 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
           name: formData.get('name') as string,
           website_url: formData.get('website_url') as string,
           scraper_name: formData.get('scraper_name') as string || null,
-          schedule_frequency: (formData.get('schedule_frequency') as string) || null,
+          schedule_frequency: (formData.get('schedule_frequency') as ScheduleFrequency) || null,
           schedule_active: formData.get('schedule_active') === 'on',
         }
       })

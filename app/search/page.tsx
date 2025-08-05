@@ -43,6 +43,7 @@ import { useMunicipalities } from "@/hooks/use-municipalities"
 import { useGlobalSearch } from "@/hooks/use-global-search"
 import { format } from "date-fns"
 import type { PdfDocument } from "@/types/database"
+import { createDocumentId } from "@/types/database"
 
 function SearchPageContent() {
   const searchParams = useSearchParams()
@@ -224,7 +225,7 @@ function SearchPageContent() {
               )}
             </Button>
             {municipalitiesData?.data
-              ?.sort((a, b) => {
+              ? [...municipalitiesData.data].sort((a, b) => {
                 const aCount = query 
                   ? searchDocuments.filter(doc => doc.municipality?.id === a.id).length
                   : (a.totalDocuments || 0)
@@ -232,8 +233,7 @@ function SearchPageContent() {
                   ? searchDocuments.filter(doc => doc.municipality?.id === b.id).length  
                   : (b.totalDocuments || 0)
                 return bCount - aCount // Sort descending by count
-              })
-              ?.slice(0, 5).map((municipality) => {
+              }).slice(0, 5).map((municipality) => {
               const isSelected = selectedMunicipalities.includes(municipality.id)
               const documentCount = searchDocuments.filter(doc => doc.municipality?.id === municipality.id).length
               const totalDocs = municipality.totalDocuments || 0
@@ -260,7 +260,8 @@ function SearchPageContent() {
                   </Badge>
                 </Button>
               )
-            })}
+            })
+            : null}
             {municipalitiesData?.data && municipalitiesData.data.length > 5 && (
               <CollapsibleTrigger asChild>
                 <Button variant="outline" size="sm" className="h-8 flex-shrink-0">
@@ -283,7 +284,7 @@ function SearchPageContent() {
           <CollapsibleContent>
             <div className="flex flex-wrap gap-2 items-center pt-2">
               {municipalitiesData?.data
-                ?.sort((a, b) => {
+                ? [...municipalitiesData.data].sort((a, b) => {
                   const aCount = query 
                     ? searchDocuments.filter(doc => doc.municipality?.id === a.id).length
                     : (a.totalDocuments || 0)
@@ -291,8 +292,7 @@ function SearchPageContent() {
                     ? searchDocuments.filter(doc => doc.municipality?.id === b.id).length  
                     : (b.totalDocuments || 0)
                   return bCount - aCount // Sort descending by count
-                })
-                ?.slice(5).map((municipality) => {
+                }).slice(5).map((municipality) => {
                 const isSelected = selectedMunicipalities.includes(municipality.id)
                 const documentCount = searchDocuments.filter(doc => doc.municipality?.id === municipality.id).length
                 const totalDocs = municipality.totalDocuments || 0
@@ -319,7 +319,8 @@ function SearchPageContent() {
                     </Badge>
                   </Button>
                 )
-              })}
+              })
+              : null}
             </div>
           </CollapsibleContent>
         </Collapsible>
@@ -358,7 +359,7 @@ function SearchPageContent() {
                       id="search-content"
                       checked={filters.searchType === 'fulltext'}
                       onCheckedChange={(checked) => 
-                        setSearchType(checked ? 'fulltext' : 'basic')
+                        setSearchType(checked === true ? 'fulltext' : 'basic')
                       }
                     />
                     <Label 
@@ -385,7 +386,7 @@ function SearchPageContent() {
                     <Checkbox
                       id="relevant-only"
                       checked={isRelevantOnly}
-                      onCheckedChange={setIsRelevantOnly}
+                      onCheckedChange={(checked) => setIsRelevantOnly(checked === true)}
                     />
                     <Label htmlFor="relevant-only" className="text-sm">
                       ADU Relevant Documents Only
@@ -395,7 +396,7 @@ function SearchPageContent() {
                     <Checkbox
                       id="analyzed-only"
                       checked={isAnalyzedOnly}
-                      onCheckedChange={setIsAnalyzedOnly}
+                      onCheckedChange={(checked) => setIsAnalyzedOnly(checked === true)}
                     />
                     <Label htmlFor="analyzed-only" className="text-sm">
                       Analyzed Documents Only
@@ -504,13 +505,30 @@ function SearchPageContent() {
                   <Badge variant="secondary">{searchDocuments.length}</Badge>
                 </div>
                 <div className="space-y-4">
-                  {searchDocuments.map((document) => (
-                    <SearchResultCard 
-                      key={document.id} 
-                      document={document} 
-                      onOpenDocument={setSelectedDocument}
-                    />
-                  ))}
+                  {searchDocuments.map((document) => {
+                    // Convert search result document to PdfDocument format
+                    const pdfDocument: PdfDocument & { municipality?: { name: string } } = {
+                      ...document,
+                      id: createDocumentId(document.id),
+                      municipality_id: document.municipality_id,
+                      file_size: null,
+                      content_text: null,
+                      content_analyzed: false,
+                      is_favorited: false,
+                      download_status: 'pending',
+                      extraction_status: 'pending', 
+                      analysis_status: null,
+                      municipality: document.municipality ? { name: document.municipality.name } : undefined
+                    } as PdfDocument & { municipality?: { name: string } }
+                    
+                    return (
+                      <SearchResultCard 
+                        key={document.id} 
+                        document={pdfDocument} 
+                        onOpenDocument={setSelectedDocument}
+                      />
+                    )
+                  })}
                 </div>
               </div>
             )}

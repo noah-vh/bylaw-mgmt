@@ -11,8 +11,6 @@ import {
   Download, 
   FileText, 
   Settings,
-  Play,
-  Pause,
   RefreshCw,
   CheckCircle,
   AlertCircle,
@@ -20,19 +18,10 @@ import {
   Edit,
   Trash2,
   Eye,
-  Filter,
   Save,
   X,
-  Activity,
-  Terminal,
-  Loader2,
-  Info,
-  Wifi,
-  WifiOff,
   Star,
   MoreHorizontal,
-  Bell,
-  Key,
   FileCheck,
   FileX
 } from "lucide-react"
@@ -63,19 +52,20 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 import { format } from "date-fns"
-import type { Municipality, PdfDocument, MunicipalityStatus } from "@/types/database"
+import type { Municipality, PdfDocument, MunicipalityStatus, ScheduleFrequency } from "@/types/database"
+import { createDocumentId } from "@/types/database"
 import { DocumentViewer } from "@/components/document-viewer"
-import { MunicipalityPipelineDashboard } from "@/components/municipality-pipeline-dashboard"
 import { useToggleDocumentFavorite } from "@/hooks/use-documents"
 
 interface MunicipalityDetailData {
   municipality: Municipality & {
-    totalDocuments: number
-    relevantDocuments: number
-    lastScrape: {
+    totalDocuments?: number
+    relevantDocuments?: number
+    lastScrape?: {
       date: string
       status: string
       documentsFound: number
+      documentsNew?: number
     } | null
   }
   documents: PdfDocument[]
@@ -179,7 +169,7 @@ export default function MunicipalityDetailPage() {
       // Convert "none" back to null for database storage
       const dataToSave = {
         ...settingsForm,
-        schedule_frequency: settingsForm.schedule_frequency === "none" ? null : settingsForm.schedule_frequency
+        schedule_frequency: settingsForm.schedule_frequency === "none" ? null : settingsForm.schedule_frequency as ScheduleFrequency | null
       }
       console.log('Saving settings:', dataToSave)
       const response = await fetch(`/api/municipalities/${municipalityId}`, {
@@ -208,7 +198,7 @@ export default function MunicipalityDetailPage() {
       }
     } catch (error) {
       console.error('Error saving settings:', error)
-      alert(`Error saving settings: ${error.message}`)
+      alert(`Error saving settings: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
       setSettingsSaving(false)
     }
@@ -231,13 +221,13 @@ export default function MunicipalityDetailPage() {
 
   const handleToggleFavorite = async (documentId: number) => {
     try {
-      await toggleFavoriteMutation.mutateAsync(documentId)
+      await toggleFavoriteMutation.mutateAsync(createDocumentId(documentId))
       // Update local state to reflect the change
       if (data) {
         setData({
           ...data,
           documents: data.documents.map(doc => 
-            doc.id === documentId 
+            doc.id === createDocumentId(documentId) 
               ? { ...doc, is_favorited: !doc.is_favorited }
               : doc
           )
@@ -248,43 +238,6 @@ export default function MunicipalityDetailPage() {
     }
   }
 
-  const handlePipelineOperation = async (phase: PipelinePhase) => {
-    if (!data?.municipality) return
-    
-    try {
-      const municipalityId = data.municipality.id
-      const options = {
-        skipExisting: false,
-        batchSize: 1,
-        maxRetries: 2
-      }
-      
-      switch (phase) {
-        case 'scraping':
-          await runScraping({ municipalities: [municipalityId], options })
-          break
-        case 'extraction':
-          await runExtraction({ municipalities: [municipalityId], options })
-          break
-        case 'analysis':
-          await runAnalysis({ municipalities: [municipalityId], options })
-          break
-        case 'complete':
-          await runCompletePipeline({ municipalities: [municipalityId], options })
-          break
-      }
-      
-      // Refresh data after operation
-      const refreshResponse = await fetch(`/api/municipalities/${municipalityId}`)
-      if (refreshResponse.ok) {
-        const refreshResult = await refreshResponse.json()
-        setData(refreshResult.data)
-      }
-    } catch (error) {
-      console.error(`Failed to run ${phase} operation:`, error)
-      alert(`Failed to run ${phase} operation: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    }
-  }
 
   if (loading) {
     return (
@@ -422,9 +375,8 @@ export default function MunicipalityDetailPage() {
 
       {/* Tabs */}
       <Tabs defaultValue="documents" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="documents">Documents</TabsTrigger>
-          <TabsTrigger value="pipeline">Pipeline</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
@@ -478,7 +430,7 @@ export default function MunicipalityDetailPage() {
                       <TableCell>
                         <div>
                           <button
-                            onClick={() => setSelectedDocument({ ...document, municipality: { name: municipality.name } })}
+                            onClick={() => setSelectedDocument({ ...document, municipality: { id: municipality.id, name: municipality.name } })}
                             className="font-medium text-left hover:text-primary transition-colors cursor-pointer"
                           >
                             {document.title || document.filename}
@@ -564,7 +516,7 @@ export default function MunicipalityDetailPage() {
                           <DropdownMenuContent align="end">
                             <DropdownMenuLabel>Actions</DropdownMenuLabel>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={() => setSelectedDocument({ ...document, municipality: { name: municipality.name } })}>
+                            <DropdownMenuItem onClick={() => setSelectedDocument({ ...document, municipality: { id: municipality.id, name: municipality.name } })}>
                               <Eye className="mr-2 h-4 w-4" />
                               View Document
                             </DropdownMenuItem>
@@ -593,52 +545,6 @@ export default function MunicipalityDetailPage() {
           </Card>
         </TabsContent>
 
-        {/* Pipeline Tab */}
-        <TabsContent value="pipeline" className="space-y-6">
-          <MunicipalityPipelineDashboard 
-            selectedMunicipalities={[data.municipality.id]}
-            showSelectionOnly={true}
-          />
-          
-          <Card>
-            <CardHeader>
-              <CardTitle>Scraper Assignment</CardTitle>
-              <CardDescription>Scrapers assigned to this municipality</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {municipality.assigned_scrapers && municipality.assigned_scrapers.length > 0 ? (
-                  <div className="grid gap-3">
-                    {municipality.assigned_scrapers.map((scraperName, index) => (
-                      <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-2 h-2 rounded-full ${
-                            municipality.active_scraper === scraperName ? 'bg-green-500 animate-pulse' : 'bg-gray-300'
-                          }`}></div>
-                          <div>
-                            <div className="font-medium">{scraperName}</div>
-                            <div className="text-sm text-muted-foreground">
-                              {municipality.active_scraper === scraperName ? 'Active' : 'Assigned'}
-                            </div>
-                          </div>
-                        </div>
-                        <Badge variant={municipality.active_scraper === scraperName ? 'default' : 'secondary'}>
-                          {municipality.active_scraper === scraperName ? 'Active' : 'Standby'}
-                        </Badge>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <Settings className="h-12 w-12 mx-auto mb-4 text-muted-foreground/50" />
-                    <p>No scrapers assigned to this municipality</p>
-                    <p className="text-sm">Configure scrapers in the settings tab</p>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
 
         {/* Scraping History */}
         <TabsContent value="history" className="space-y-6">

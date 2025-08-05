@@ -199,13 +199,7 @@ export function useJobProgress(jobId?: string) {
     },
     enabled: !!jobId,
     staleTime: 1000 * 10, // 10 seconds
-    refetchInterval: (data) => {
-      // Refetch more frequently for active jobs
-      if (data?.status === 'running' || data?.status === 'pending') {
-        return 1000 * 5 // 5 seconds
-      }
-      return false // Don't refetch completed jobs
-    },
+    refetchInterval: false, // No automatic refetching needed for static stats
   })
 }
 

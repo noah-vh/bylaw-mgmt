@@ -62,11 +62,11 @@ export function DocumentPipelineStatus({
         id: 'scraping',
         label: 'Scraped',
         icon: Search,
-        status: document.download_status === 'completed' ? 'completed' : 
-                document.download_status === 'failed' ? 'failed' :
+        status: document.download_status === 'downloaded' ? 'completed' : 
+                document.download_status === 'error' ? 'failed' :
                 document.download_status === 'downloading' ? 'processing' : 'pending',
         timestamp: document.date_found,
-        canReprocess: document.download_status === 'failed'
+        canReprocess: document.download_status === 'error'
       },
       {
         id: 'extraction',
@@ -77,7 +77,7 @@ export function DocumentPipelineStatus({
                 document.extraction_status === 'failed' ? 'failed' :
                 document.extraction_status === 'processing' ? 'processing' : 'pending',
         timestamp: document.content_text ? document.date_found : null,
-        canReprocess: document.extraction_status === 'failed' || document.download_status === 'completed'
+        canReprocess: document.extraction_status === 'failed' || document.download_status === 'downloaded'
       },
       {
         id: 'analysis',
@@ -90,12 +90,12 @@ export function DocumentPipelineStatus({
         timestamp: document.analysis_date,
         error: document.analysis_error,
         canReprocess: document.analysis_status === 'failed' || 
-                     (document.extraction_status === 'completed' && document.content_text)
+                     (document.extraction_status === 'completed' && !!document.content_text)
       }
     ]
 
     // Skip stages if prerequisites aren't met
-    if (document.download_status !== 'completed') {
+    if (document.download_status !== 'downloaded') {
       stages[1].status = 'skipped'
       stages[2].status = 'skipped'
     } else if (document.extraction_status !== 'completed' || !document.content_text) {

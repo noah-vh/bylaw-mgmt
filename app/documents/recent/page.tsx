@@ -13,6 +13,7 @@ import { useDocuments } from "@/hooks/use-documents"
 import { useMunicipalities } from "@/hooks/use-municipalities"
 
 import type { PdfDocument } from "@/types/database"
+import { createMunicipalityId } from "@/types/database"
 
 export default function RecentDocumentsPage() {
   const [timeRange, setTimeRange] = useState<'24h' | '7d' | '30d'>('7d')
@@ -38,7 +39,7 @@ export default function RecentDocumentsPage() {
     refetch
   } = useDocuments({
     search: searchQuery,
-    municipalityId: municipalityFilter !== 'all' ? parseInt(municipalityFilter) : undefined,
+    municipalityId: municipalityFilter !== 'all' ? createMunicipalityId(parseInt(municipalityFilter)) : undefined,
     isAduRelevant: relevanceFilter === 'relevant' ? true : relevanceFilter === 'not-relevant' ? false : undefined,
     sort: 'date_found',
     order: 'desc',
@@ -99,7 +100,7 @@ export default function RecentDocumentsPage() {
             Recently found bylaw documents from municipality scraping
           </p>
         </div>
-        <Button onClick={refetch} disabled={loading}>
+        <Button onClick={() => refetch()} disabled={loading}>
           <Clock className="h-4 w-4 mr-2" />
           Refresh
         </Button>
@@ -245,7 +246,7 @@ export default function RecentDocumentsPage() {
                 <p className="text-muted-foreground mb-4">
                   There was an error loading recent documents. Please try again.
                 </p>
-                <Button onClick={refetch}>
+                <Button onClick={() => refetch()}>
                   Try Again
                 </Button>
               </CardContent>
@@ -291,7 +292,7 @@ export default function RecentDocumentsPage() {
                           <span>•</span>
                           <span>{formatDate(document.date_found)}</span>
                           <span>•</span>
-                          <span>{formatFileSize(document.file_size)}</span>
+                          <span>{formatFileSize(document.file_size || 0)}</span>
                         </div>
 
                         <div className="flex items-center space-x-2">

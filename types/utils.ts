@@ -49,7 +49,7 @@ export type RequiredBy<T, K extends keyof T> = Omit<T, K> & Required<Pick<T, K>>
 
 /** Rename keys in a type */
 export type RenameKeys<T, R extends Record<keyof T, string>> = {
-  [K in keyof R as R[K]]: T[K];
+  [K in keyof R as R[K]]: T[K extends keyof T ? K : never];
 };
 
 /** Create a union of all property values */
@@ -256,7 +256,7 @@ export const mapOption = <T, U>(
   option: Option<T>,
   mapper: (value: T) => U
 ): Option<U> => {
-  return isSome(option) ? mapper(option) : option;
+  return isSome(option) ? mapper(option) : (option as Option<U>);
 };
 
 // ============================================================================

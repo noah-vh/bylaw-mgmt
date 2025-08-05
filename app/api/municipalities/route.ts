@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '../../../lib/supabase'
-import { CacheManager } from '../../../lib/cache'
+// Cache removed - direct database access only
 import { z } from 'zod'
 
 // Validation schemas
@@ -50,14 +50,6 @@ export async function GET(request: NextRequest) {
     // Debug logging
     console.log('API Request params:', { page, limitParam, limit, search, status, hasDocuments, scheduledOnly, sortBy, sortOrder })
 
-    // Create cache key based on parameters
-    const cacheKey = `municipalities:list:${page}:${limit}:${search || ''}:${status || ''}:${hasDocuments}:${scheduledOnly}:${sortBy}:${sortOrder}`
-    
-    // Temporarily disable cache to debug
-    // const cachedResult = await CacheManager.get(cacheKey)
-    // if (cachedResult) {
-    //   return NextResponse.json(cachedResult)
-    // }
 
     // Build query with row-level security
     let query = supabase
@@ -148,8 +140,6 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Cache the result
-    await CacheManager.set(cacheKey, result, 300000) // 5 minutes
 
     return NextResponse.json(result)
 
@@ -221,10 +211,6 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       )
     }
-
-    // Invalidate relevant caches
-    await CacheManager.delPattern('municipalities:list:*')
-    await CacheManager.delPattern('dashboard:*')
 
     return NextResponse.json(
       { data: municipality, message: 'Municipality created successfully' },
@@ -324,10 +310,6 @@ export async function PATCH(request: NextRequest) {
         { status: 500 }
       )
     }
-
-    // Invalidate relevant caches
-    await CacheManager.delPattern('municipalities:list:*')
-    await CacheManager.delPattern('dashboard:*')
 
     // Enhanced response with scraper information
     const scraperInfo = updatedMunicipality.scrapers?.[0] || null

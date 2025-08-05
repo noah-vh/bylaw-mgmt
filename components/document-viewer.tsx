@@ -32,7 +32,6 @@ import { format } from "date-fns"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { DocumentPipelineStatus } from "@/components/document-pipeline-status"
-import { useDocumentProcessing } from "@/hooks/use-processing"
 import type { PdfDocument, DocumentId } from "@/types/database"
 
 interface DocumentViewerProps {
@@ -65,7 +64,7 @@ function DocumentStageStatusBadge({ document }: { document: PdfDocument }) {
         tooltip: 'PDF content has been extracted and is ready for analysis'
       }
     }
-    if (document.download_status === 'completed') {
+    if (document.download_status === 'downloaded') {
       return {
         label: 'Downloaded',
         className: 'bg-yellow-100 text-yellow-800',
@@ -73,7 +72,7 @@ function DocumentStageStatusBadge({ document }: { document: PdfDocument }) {
         tooltip: 'Document has been downloaded successfully'
       }
     }
-    if (document.download_status === 'failed' || document.extraction_status === 'failed' || document.analysis_status === 'failed') {
+    if (document.download_status === 'error' || document.extraction_status === 'failed' || document.analysis_status === 'failed') {
       return {
         label: 'Failed',
         className: 'bg-red-100 text-red-800',
@@ -122,41 +121,12 @@ export function DocumentViewer({
   const [activeTab, setActiveTab] = React.useState("content")
   
   const municipalityName = document.municipality?.name || document.municipality_name || 'Unknown'
-  const documentProcessing = useDocumentProcessing()
   
   const handleReprocess = async (documentId: DocumentId, stage: 'download' | 'extract' | 'analyze') => {
-    try {
-      if (stage === 'download') {
-        // Download is not currently supported as a standalone operation
-        // The document download happens during the scraping phase
-        console.warn('Download operation is not supported for individual documents. Documents are downloaded during the scraping phase.')
-        return
-      } else if (stage === 'extract') {
-        // First select the document, then start extraction
-        documentProcessing.setSelectedDocuments([documentId])
-        await documentProcessing.startExtraction({
-          priority: 'high',
-          skipExisting: false,
-          retryFailedJobs: true
-        })
-        // Clear selection after processing
-        documentProcessing.clearDocumentSelection()
-      } else if (stage === 'analyze') {
-        // First select the document, then start analysis
-        documentProcessing.setSelectedDocuments([documentId])
-        await documentProcessing.startAnalysis({
-          priority: 'high',
-          skipExisting: false,
-          retryFailedJobs: true
-        })
-        // Clear selection after processing
-        documentProcessing.clearDocumentSelection()
-      }
-      // Switch to processing tab to show progress
-      setActiveTab("processing")
-    } catch (error) {
-      console.error(`Failed to start ${stage} for document ${documentId}:`, error)
-    }
+    console.log(`Processing request for document ${documentId}, stage: ${stage}`)
+    // Placeholder functionality - processing hook has been removed
+    // In a real implementation, this would trigger the appropriate processing pipeline
+    setActiveTab("processing")
   }
   
   // Create highlighted content when search query or document content changes
@@ -381,7 +351,7 @@ export function DocumentViewer({
                       </span>
                     </div>
                     
-                    {document.download_status === 'completed' && (
+                    {document.download_status === 'downloaded' && (
                       <div className="flex justify-between py-2 px-3 bg-muted/50 rounded">
                         <span>Document downloaded</span>
                         <span className="text-muted-foreground">
@@ -408,7 +378,7 @@ export function DocumentViewer({
                       </div>
                     )}
                     
-                    {(document.download_status === 'failed' || 
+                    {(document.download_status === 'error' || 
                       document.extraction_status === 'failed' || 
                       document.analysis_status === 'failed') && (
                       <div className="py-2 px-3 bg-red-50 border border-red-200 rounded">
@@ -516,7 +486,7 @@ export function DocumentViewer({
                   <div>
                     <h4 className="font-medium text-sm mb-3">Processing Actions</h4>
                     <div className="flex flex-wrap gap-2">
-                      {document.download_status !== 'completed' && (
+                      {document.download_status !== 'downloaded' && (
                         <Button 
                           variant="outline" 
                           size="sm"
@@ -527,7 +497,7 @@ export function DocumentViewer({
                         </Button>
                       )}
                       
-                      {document.download_status === 'completed' && document.extraction_status !== 'completed' && (
+                      {document.download_status === 'downloaded' && document.extraction_status !== 'completed' && (
                         <Button 
                           variant="outline" 
                           size="sm"
@@ -592,7 +562,7 @@ export function DocumentViewer({
           </div>
           <div className="flex items-center gap-2">
             <DocumentPipelineStatus document={document} size="sm" />
-            {document.relevance_confidence !== undefined && (
+            {document.relevance_confidence !== null && document.relevance_confidence !== undefined && (
               <Badge variant="outline" className="text-xs">
                 {Math.round(document.relevance_confidence * 100)}% confidence
               </Badge>

@@ -6,7 +6,10 @@ import type {
   DocumentSearchParams,
   PaginatedResponse,
   DocumentId,
-  MunicipalityId
+  MunicipalityId,
+  DownloadStatus,
+  ExtractionStatus,
+  AnalysisStatus
 } from "@/types/database"
 
 // Query key factory

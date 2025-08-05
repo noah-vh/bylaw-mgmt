@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '../../../../lib/supabase'
-import { CacheManager } from '../../../../lib/cache'
+// Cache removed - direct database access only
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -19,12 +19,6 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       )
     }
 
-    // Check cache first
-    const cacheKey = `municipality:${municipalityId}:details`
-    const cachedData = await CacheManager.get(cacheKey)
-    if (cachedData) {
-      return NextResponse.json(cachedData)
-    }
 
     // Get municipality details
     const { data: municipality, error: muniError } = await supabase
@@ -114,8 +108,6 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    // Cache the result for 5 minutes
-    await CacheManager.set(cacheKey, responseData, 300000)
 
     return NextResponse.json(responseData)
 
@@ -183,9 +175,6 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       )
     }
 
-    // Invalidate cache
-    await CacheManager.invalidateMunicipality(municipalityId)
-
     return NextResponse.json({
       data: updatedMunicipality,
       message: 'Municipality updated successfully'
@@ -251,9 +240,6 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       )
     }
 
-    // Invalidate cache - both the specific municipality and the list
-    await CacheManager.invalidateMunicipality(municipalityId)
-    await CacheManager.delPattern('municipalities:list:*')
 
     return NextResponse.json({
       data: updatedMunicipality,
@@ -323,9 +309,6 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
         { status: 500 }
       )
     }
-
-    // Invalidate cache
-    await CacheManager.invalidateMunicipality(municipalityId)
 
     return NextResponse.json({
       data: { id: municipalityId, name: municipality.name },
