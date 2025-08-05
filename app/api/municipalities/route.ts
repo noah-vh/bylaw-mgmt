@@ -23,6 +23,15 @@ const createMunicipalitySchema = z.object({
   schedule_active: z.boolean().optional().default(false),
 })
 
+const updateMunicipalitySchema = z.object({
+  name: z.string().min(1).max(255).optional(),
+  website_url: z.string().url().optional(),
+  status: z.enum(['pending', 'testing', 'confirmed', 'active', 'error', 'running']).optional(),
+  scraper_name: z.string().max(100).nullable().optional(),
+  schedule_frequency: z.enum(['weekly', 'monthly', 'quarterly']).nullable().optional(),
+  schedule_active: z.boolean().optional(),
+})
+
 // GET /api/municipalities - List municipalities with filtering and pagination
 export async function GET(request: NextRequest) {
   try {

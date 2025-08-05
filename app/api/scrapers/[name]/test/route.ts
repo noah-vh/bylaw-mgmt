@@ -9,6 +9,7 @@ import type {
   JobId,
   MunicipalityId
 } from '@/types/database'
+import { createJobId, createMunicipalityId } from '@/types/database'
 
 // Validation schema for test request
 const scraperTestSchema = z.object({
@@ -206,17 +207,43 @@ export async function POST(
       )
     }
 
+    // Ensure municipality is not null
+    if (!municipality) {
+      return NextResponse.json(
+        { 
+          error: 'Municipality not found',
+          message: `No municipality found for scraper '${scraperName}'`,
+          timestamp: new Date().toISOString()
+        },
+        { status: 404 }
+      )
+    }
+
+    // Ensure municipality is not null
+    if (!municipality) {
+      return NextResponse.json(
+        { 
+          error: 'Municipality not found',
+          message: 'Failed to retrieve municipality information',
+          timestamp: new Date().toISOString()
+        },
+        { status: 404 }
+      )
+    }
+
     // Generate job ID for tracking
-    const jobId = `scraper-test-${scraperName}-${Date.now()}` as JobId
+    const jobId = createJobId(`scraper-test-${scraperName}-${Date.now()}`)
 
     // Update municipality status to testing
-    await supabase
-      .from('municipalities')
-      .update({ 
-        status: 'testing',
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', municipality.id)
+    if (municipality) {
+      await supabase
+        .from('municipalities')
+        .update({ 
+          status: 'testing',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', municipality.id)
+    }
 
     // Write initial progress
     await writeJobProgress(jobId, {

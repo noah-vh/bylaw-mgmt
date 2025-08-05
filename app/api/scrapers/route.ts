@@ -294,7 +294,7 @@ export async function PATCH(request: NextRequest) {
     // Find municipality by scraper name
     const { data: municipality, error: findError } = await supabase
       .from('municipalities')
-      .select('id, name, status as current_status')
+      .select('id, name, status')
       .eq('scraper_name', scraperName)
       .single()
 

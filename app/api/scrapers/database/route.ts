@@ -10,6 +10,7 @@ import type {
   SuccessResponse,
   ErrorResponse
 } from '@/types/database'
+import { createMunicipalityId, createScraperId } from '@/types/database'
 
 // Validation schema for new scraper
 const scraperInsertSchema = z.object({
@@ -79,7 +80,7 @@ export async function GET(request: NextRequest) {
           id,
           name,
           website_url,
-          status as municipality_status
+          status
         )
       `)
       .order('priority', { ascending: false })
@@ -116,19 +117,23 @@ export async function GET(request: NextRequest) {
     }
 
     // Transform data to include computed fields
-    const enhancedScrapers: Scraper[] = (scrapers || []).map(scraper => ({
-      ...scraper,
-      municipality: scraper.municipalities ? {
-        id: scraper.municipalities.id,
-        name: scraper.municipalities.name
-      } : undefined,
-      municipality_name: scraper.municipalities?.name,
-      isValidated: scraper.status === 'validated',
-      isActiveAndValidated: scraper.is_active && scraper.status === 'validated',
-      statusIcon: getStatusIcon(scraper.status),
-      lastTestDuration: scraper.last_tested ? 
-        calculateDurationSinceTest(scraper.last_tested) : undefined
-    }))
+    const enhancedScrapers: Scraper[] = (scrapers || []).map(scraper => {
+      const { municipalities, ...scraperData } = scraper
+      const municipalityData = Array.isArray(municipalities) ? municipalities[0] : municipalities as any
+      return {
+        ...scraperData,
+        municipality: municipalityData ? {
+          id: municipalityData.id,
+          name: municipalityData.name
+        } : undefined,
+        municipality_name: municipalityData?.name,
+        isValidated: scraperData.status === 'validated',
+        isActiveAndValidated: scraperData.is_active && scraperData.status === 'validated',
+        statusIcon: getStatusIcon(scraperData.status),
+        lastTestDuration: scraperData.last_tested ? 
+          calculateDurationSinceTest(scraperData.last_tested) : undefined
+      }
+    })
 
     // Calculate summary statistics
     const stats = {
@@ -153,7 +158,7 @@ export async function GET(request: NextRequest) {
       },
       message: 'Scrapers retrieved successfully from database',
       timestamp: new Date().toISOString()
-    } satisfies SuccessResponse<Scraper[]>)
+    })
 
   } catch (error) {
     console.error('Unexpected error in GET /api/scrapers/database:', error)
@@ -241,6 +246,7 @@ export async function POST(request: NextRequest) {
       .from('scrapers')
       .insert({
         ...scraperData,
+        municipality_id: createMunicipalityId(scraperData.municipality_id),
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       } satisfies ScraperInsert)
@@ -265,7 +271,7 @@ export async function POST(request: NextRequest) {
           id,
           name,
           website_url,
-          status as municipality_status
+          status
         )
       `)
       .single()
@@ -283,16 +289,18 @@ export async function POST(request: NextRequest) {
     }
 
     // Transform response data
+    const { municipalities, ...newScraperData } = newScraper
+    const municipalityData = Array.isArray(municipalities) ? municipalities[0] : municipalities as any
     const enhancedScraper: Scraper = {
-      ...newScraper,
-      municipality: newScraper.municipalities ? {
-        id: newScraper.municipalities.id,
-        name: newScraper.municipalities.name
+      ...newScraperData,
+      municipality: municipalityData ? {
+        id: municipalityData.id,
+        name: municipalityData.name
       } : undefined,
-      municipality_name: newScraper.municipalities?.name,
-      isValidated: newScraper.status === 'validated',
-      isActiveAndValidated: newScraper.is_active && newScraper.status === 'validated',
-      statusIcon: getStatusIcon(newScraper.status),
+      municipality_name: municipalityData?.name,
+      isValidated: newScraperData.status === 'validated',
+      isActiveAndValidated: newScraperData.is_active && newScraperData.status === 'validated',
+      statusIcon: getStatusIcon(newScraperData.status),
       lastTestDuration: undefined
     }
 

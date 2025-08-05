@@ -200,8 +200,8 @@ export async function POST(request: NextRequest) {
     const job = await createBackgroundJob(
       jobType, 
       operation, 
-      municipalityIds.length > 0 ? municipalityIds : undefined,
-      documentIds.length > 0 ? documentIds : undefined,
+      municipalityIds.length > 0 ? municipalityIds as any : undefined,
+      documentIds.length > 0 ? documentIds as any : undefined,
       options
     )
 
@@ -239,11 +239,11 @@ export async function POST(request: NextRequest) {
         }
 
         // Add options as arguments
-        if (options.priority) args.push(`--priority=${options.priority}`)
-        if (options.skipExisting) args.push('--skip-existing')
-        if (options.retryFailedJobs) args.push('--retry-failed')
-        if (options.validateResults) args.push('--validate-results')
-        if (options.batchSize) args.push(`--batch-size=${options.batchSize}`)
+        if ((options as any).priority) args.push(`--priority=${(options as any).priority}`)
+        if ((options as any).skipExisting) args.push('--skip-existing')
+        if ((options as any).retryFailedJobs) args.push('--retry-failed')
+        if ((options as any).validateResults) args.push('--validate-results')
+        if ((options as any).batchSize) args.push(`--batch-size=${(options as any).batchSize}`)
 
         // Execute Python processing script
         const { stdout, stderr, exitCode } = await executePythonScript(

@@ -105,12 +105,12 @@ async function fetchScraperById(scraperId: ScraperId) {
       module_name,
       class_name,
       is_active,
-      municipalities!scrapers_municipality_id_fkey (
+      municipalities (
         id,
         name,
         website_url,
         scraper_name,
-        status as municipality_status
+        status
       )
     `)
     .eq('id', scraperId)

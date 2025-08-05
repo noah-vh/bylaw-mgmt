@@ -71,15 +71,21 @@ export async function GET(request: NextRequest) {
       .gte('completed_at', todayStart.toISOString())
 
     // Format recent activity
-    const recentActivity = (recentActivityResult.data || []).map(log => ({
-      id: `scrape_${log.id}`,
-      type: 'scrape' as const,
-      message: `Scraping ${log.status} for ${Array.isArray(log.municipalities) ? log.municipalities[0]?.name : log.municipalities?.name || 'Unknown'}`,
-      timestamp: log.scrape_date,
-      status: log.status === 'success' ? 'success' : log.status === 'error' ? 'error' : 'warning',
-      municipalityId: log.municipality_id,
-      municipalityName: Array.isArray(log.municipalities) ? log.municipalities[0]?.name : log.municipalities?.name
-    }))
+    const recentActivity = (recentActivityResult.data || []).map(log => {
+      const municipalityName = Array.isArray(log.municipalities) 
+        ? log.municipalities[0]?.name 
+        : (log.municipalities as any)?.name || 'Unknown'
+      
+      return {
+        id: `scrape_${log.id}`,
+        type: 'scrape' as const,
+        message: `Scraping ${log.status} for ${municipalityName}`,
+        timestamp: log.scrape_date,
+        status: log.status === 'success' ? 'success' : log.status === 'error' ? 'error' : 'warning',
+        municipalityId: log.municipality_id,
+        municipalityName
+      }
+    })
 
     return NextResponse.json({
       totalMunicipalities,

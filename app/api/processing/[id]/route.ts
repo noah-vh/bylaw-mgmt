@@ -219,7 +219,7 @@ export async function PATCH(
     }
 
     // Update progress file
-    await readJobProgress(jobId).then(async (fileProgress) => {
+    await readJobProgress(jobId as JobId).then(async (fileProgress) => {
       const progressDir = path.join(process.cwd(), 'tmp', 'job-progress')
       await fs.mkdir(progressDir, { recursive: true })
       await fs.writeFile(

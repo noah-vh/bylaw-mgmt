@@ -7,8 +7,10 @@ import type {
   ScraperValidationStatus,
   ScraperId,
   SuccessResponse,
-  ErrorResponse
+  ErrorResponse,
+  ScraperRow
 } from '@/types/database'
+import { createScraperId, createMunicipalityId } from '@/types/database'
 
 // Validation schema for scraper updates
 const scraperUpdateSchema = z.object({
@@ -64,11 +66,11 @@ async function fetchScraperById(scraperId: ScraperId) {
       estimated_pages,
       estimated_pdfs,
       priority,
-      municipalities!scrapers_municipality_id_fkey (
+      municipalities (
         id,
         name,
         website_url,
-        status as municipality_status
+        status
       )
     `)
     .eq('id', scraperId)
@@ -79,18 +81,20 @@ async function fetchScraperById(scraperId: ScraperId) {
   }
 
   // Transform to enhanced scraper
+  const { municipalities, ...scraperData } = scraper
+  const municipalityData = Array.isArray(municipalities) ? municipalities[0] : municipalities
   const enhancedScraper: Scraper = {
-    ...scraper,
-    municipality: scraper.municipalities ? {
-      id: scraper.municipalities.id,
-      name: scraper.municipalities.name
+    ...scraperData,
+    municipality: municipalityData ? {
+      id: municipalityData.id,
+      name: municipalityData.name
     } : undefined,
-    municipality_name: scraper.municipalities?.name,
-    isValidated: scraper.status === 'validated',
-    isActiveAndValidated: scraper.is_active && scraper.status === 'validated',
-    statusIcon: getStatusIcon(scraper.status),
-    lastTestDuration: scraper.last_tested ? 
-      calculateDurationSinceTest(scraper.last_tested) : undefined
+    municipality_name: municipalityData?.name,
+    isValidated: scraperData.status === 'validated',
+    isActiveAndValidated: scraperData.is_active && scraperData.status === 'validated',
+    statusIcon: getStatusIcon(scraperData.status),
+    lastTestDuration: scraperData.last_tested ? 
+      calculateDurationSinceTest(scraperData.last_tested) : undefined
   }
 
   return enhancedScraper
@@ -101,9 +105,10 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
+  const scraperId = createScraperId(parseInt(id))
+  
   try {
-    const { id } = await params
-    const scraperId = parseInt(id) as ScraperId
     
     if (isNaN(scraperId) || scraperId <= 0) {
       return NextResponse.json(
@@ -131,7 +136,7 @@ export async function GET(
       return NextResponse.json(
         { 
           error: 'Scraper not found',
-          message: `No scraper found with ID: ${id}`,
+          message: `No scraper found with ID: ${scraperId}`,
           timestamp: new Date().toISOString()
         } satisfies ErrorResponse,
         { status: 404 }
@@ -154,9 +159,10 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
+  const scraperId = createScraperId(parseInt(id))
+  
   try {
-    const { id } = await params
-    const scraperId = parseInt(id) as ScraperId
     
     if (isNaN(scraperId) || scraperId <= 0) {
       return NextResponse.json(
@@ -220,13 +226,18 @@ export async function PATCH(
     }
 
     // Prepare update data with timestamp
-    const finalUpdateData: ScraperUpdate = {
+    const finalUpdateData: any = {
       ...updateData,
       updated_at: new Date().toISOString(),
       // Update last_tested when status changes to validated or failed
       ...(updateData.status && ['validated', 'failed'].includes(updateData.status) && {
         last_tested: updateData.last_tested || new Date().toISOString()
       })
+    }
+
+    // Cast municipality_id to the branded type if provided
+    if (updateData.municipality_id) {
+      finalUpdateData.municipality_id = updateData.municipality_id as any
     }
 
     // Update the scraper
@@ -251,11 +262,11 @@ export async function PATCH(
         estimated_pages,
         estimated_pdfs,
         priority,
-        municipalities!scrapers_municipality_id_fkey (
+        municipalities (
           id,
           name,
           website_url,
-          status as municipality_status
+          status
         )
       `)
       .single()
@@ -273,18 +284,20 @@ export async function PATCH(
     }
 
     // Transform response data
+    const { municipalities, ...updatedScraperData } = updatedScraper
+    const municipalityData = Array.isArray(municipalities) ? municipalities[0] : municipalities
     const enhancedScraper: Scraper = {
-      ...updatedScraper,
-      municipality: updatedScraper.municipalities ? {
-        id: updatedScraper.municipalities.id,
-        name: updatedScraper.municipalities.name
+      ...updatedScraperData,
+      municipality: municipalityData ? {
+        id: municipalityData.id,
+        name: municipalityData.name
       } : undefined,
-      municipality_name: updatedScraper.municipalities?.name,
-      isValidated: updatedScraper.status === 'validated',
-      isActiveAndValidated: updatedScraper.is_active && updatedScraper.status === 'validated',
-      statusIcon: getStatusIcon(updatedScraper.status),
-      lastTestDuration: updatedScraper.last_tested ? 
-        calculateDurationSinceTest(updatedScraper.last_tested) : undefined
+      municipality_name: municipalityData?.name,
+      isValidated: updatedScraperData.status === 'validated',
+      isActiveAndValidated: updatedScraperData.is_active && updatedScraperData.status === 'validated',
+      statusIcon: getStatusIcon(updatedScraperData.status),
+      lastTestDuration: updatedScraperData.last_tested ? 
+        calculateDurationSinceTest(updatedScraperData.last_tested) : undefined
     }
 
     // If status was updated to validated or failed, create a scrape log entry
@@ -325,9 +338,10 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
+  const scraperId = createScraperId(parseInt(id))
+  
   try {
-    const { id } = await params
-    const scraperId = parseInt(id) as ScraperId
     
     if (isNaN(scraperId) || scraperId <= 0) {
       return NextResponse.json(
