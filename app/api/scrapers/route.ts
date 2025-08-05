@@ -361,7 +361,7 @@ export async function PATCH(request: NextRequest) {
         municipalityId: municipality.id,
         municipalityName: municipality.name,
         scraperName,
-        updatedStatus: updateData.status || municipality.current_status,
+        updatedStatus: updateData.status || municipality.status,
         version,
         successRate,
         lastTestResult
