@@ -30,7 +30,6 @@ import {
 } from "lucide-react"
 import { DocumentViewer } from "@/components/document-viewer"
 import { SearchResultHighlights } from "@/components/search-result-highlights"
-import { RelevanceScoreBadge } from "@/components/relevance-score-badge"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -404,9 +403,6 @@ function DocumentsPageContent() {
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setSorting('title', 'desc')} className="cursor-pointer">
                   Title (Z-A)
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setSorting('relevance_score', 'desc')} className="cursor-pointer">
-                  Relevance Score
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -817,17 +813,6 @@ function DocumentTableView({
                     </div>
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <span className="truncate">{document.filename}</span>
-                      {document.is_relevant && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-badge-primary text-white">
-                          ADU Relevant
-                        </span>
-                      )}
-                      {document.relevance_score && (
-                        <RelevanceScoreBadge 
-                          score={document.relevance_score * 100} 
-                          size="sm"
-                        />
-                      )}
                     </div>
                     {searchParams.search && document.content_text && (
                       <div className="mt-2 text-sm text-muted-foreground">
@@ -1009,17 +994,6 @@ function DocumentGridView({ data, isLoading, onToggleFavorite, onOpenDocument }:
             <div className="space-y-3">
               <div className="space-y-2">
                 <div className="flex flex-wrap gap-1">
-                  {document.is_relevant && (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-badge-primary text-white">
-                      ADU Relevant
-                    </span>
-                  )}
-                  {document.relevance_score && (
-                    <RelevanceScoreBadge 
-                      score={document.relevance_score * 100} 
-                      size="sm"
-                    />
-                  )}
                   <DocumentStatus document={document} />
                 </div>
               </div>
