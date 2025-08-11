@@ -208,20 +208,22 @@ export interface Database {
           url: string
           filename: string
           file_size: number | null
-          is_adu_relevant: boolean
+          is_relevant: boolean | null
           date_found: string
+          date_published: string | null
           last_checked: string
           content_analyzed: boolean
           content_text: string | null
-          relevance_confidence: number | null
+          relevance_score: number | null
           analysis_date: string | null
           analysis_error: string | null
           storage_path: string | null
           content_hash: string | null
-          download_status: DownloadStatus
           is_favorited: boolean
-          extraction_status: ExtractionStatus | null
-          analysis_status: AnalysisStatus | null
+          search_vector: unknown | null
+          categories: unknown | null
+          categorized_at: string | null
+          has_aru_provisions: boolean | null
         }
         Insert: {
           id?: DocumentId
@@ -230,20 +232,22 @@ export interface Database {
           url: string
           filename: string
           file_size?: number | null
-          is_adu_relevant?: boolean
+          is_relevant?: boolean | null
           date_found?: string
+          date_published?: string | null
           last_checked?: string
           content_analyzed?: boolean
           content_text?: string | null
-          relevance_confidence?: number | null
+          relevance_score?: number | null
           analysis_date?: string | null
           analysis_error?: string | null
           storage_path?: string | null
           content_hash?: string | null
-          download_status?: DownloadStatus
           is_favorited?: boolean
-          extraction_status?: ExtractionStatus | null
-          analysis_status?: AnalysisStatus | null
+          search_vector?: unknown | null
+          categories?: unknown | null
+          categorized_at?: string | null
+          has_aru_provisions?: boolean | null
         }
         Update: {
           id?: DocumentId
@@ -252,20 +256,22 @@ export interface Database {
           url?: string
           filename?: string
           file_size?: number | null
-          is_adu_relevant?: boolean
+          is_relevant?: boolean | null
           date_found?: string
+          date_published?: string | null
           last_checked?: string
           content_analyzed?: boolean
           content_text?: string | null
-          relevance_confidence?: number | null
+          relevance_score?: number | null
           analysis_date?: string | null
           analysis_error?: string | null
           storage_path?: string | null
           content_hash?: string | null
-          download_status?: DownloadStatus
           is_favorited?: boolean
-          extraction_status?: ExtractionStatus | null
-          analysis_status?: AnalysisStatus | null
+          search_vector?: unknown | null
+          categories?: unknown | null
+          categorized_at?: string | null
+          has_aru_provisions?: boolean | null
         }
       }
       filter_keywords: {
@@ -704,7 +710,7 @@ export interface DocumentSearchParams extends PaginationParams {
   readonly municipalityId?: MunicipalityId;
   readonly search?: string;
   readonly searchType?: 'basic' | 'fulltext';
-  readonly isAduRelevant?: boolean;
+  readonly isAduRelevant?: boolean; // Frontend parameter name
   readonly isAnalyzed?: boolean;
   readonly isFavorited?: boolean;
   readonly dateFrom?: string;
@@ -714,6 +720,7 @@ export interface DocumentSearchParams extends PaginationParams {
   readonly downloadStatus?: DownloadStatus;
   readonly extractionStatus?: ExtractionStatus;
   readonly analysisStatus?: AnalysisStatus;
+  readonly category?: string;
 }
 
 /** Municipality search parameters */

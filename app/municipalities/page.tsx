@@ -16,7 +16,10 @@ import {
   Grid3x3,
   List,
   RefreshCw,
-  Settings
+  Settings,
+  ChevronUp,
+  ChevronDown,
+  ChevronsUpDown
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -54,7 +57,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 
 import { useMunicipalitySearch, useCreateMunicipality, useUpdateMunicipality, useDeleteMunicipality } from "@/hooks/use-municipalities"
 import { format } from "date-fns"
-import type { Municipality, MunicipalityStatus, ScheduleFrequency } from "@/types/database"
+import type { Municipality } from "@/types/database"
 import { createMunicipalityId, createDocumentId } from "@/types/database"
 
 export default function MunicipalitiesPage() {
@@ -69,13 +72,13 @@ export default function MunicipalitiesPage() {
     error,
     searchParams,
     setSearch,
-    setStatus,
     setPage,
     setSorting,
     resetSearch,
     refetch,
     updateSearch
   } = useMunicipalitySearch()
+
 
 
   const createMutation = useCreateMunicipality()
@@ -133,41 +136,23 @@ export default function MunicipalitiesPage() {
           </div>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => refetch()}>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Refresh
-          </Button>
           <CreateMunicipalityDialog onSuccess={() => refetch()} />
         </div>
       </div>
 
-      {/* Filters and Search */
-
+      {/* Filters and Search */}
       <div className="flex flex-col sm:flex-row gap-4 mb-6">
         <div className="flex-1">
           <div className="relative">
-            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search municipalities..."
               value={searchParams.search || ''}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-8"
+              className="pl-10 h-10"
             />
           </div>
         </div>
-        <Select value={searchParams.status || 'all'} onValueChange={(value) => setStatus(value === 'all' ? undefined : value as MunicipalityStatus)}>
-          <SelectTrigger className="w-48">
-            <SelectValue placeholder="Filter by status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Statuses</SelectItem>
-            <SelectItem value="active">Active</SelectItem>
-            <SelectItem value="confirmed">Confirmed</SelectItem>
-            <SelectItem value="testing">Testing</SelectItem>
-            <SelectItem value="pending">Pending</SelectItem>
-            <SelectItem value="error">Error</SelectItem>
-          </SelectContent>
-        </Select>
         <div className="flex gap-2">
           <Select 
             value={searchParams.limit?.toString() || "100"} 
@@ -176,7 +161,7 @@ export default function MunicipalitiesPage() {
               updateSearch({ limit, page: 1 })
             }}
           >
-            <SelectTrigger className="w-24">
+            <SelectTrigger className="w-24 h-10">
               <SelectValue placeholder="Show" />
             </SelectTrigger>
             <SelectContent>
@@ -191,6 +176,7 @@ export default function MunicipalitiesPage() {
               variant={viewMode === 'table' ? 'default' : 'outline'}
               size="sm"
               onClick={() => setViewMode('table')}
+              className="h-10 px-3"
             >
               <List className="h-4 w-4" />
             </Button>
@@ -198,13 +184,13 @@ export default function MunicipalitiesPage() {
               variant={viewMode === 'grid' ? 'default' : 'outline'}
               size="sm"
               onClick={() => setViewMode('grid')}
+              className="h-10 px-3"
             >
               <Grid3x3 className="h-4 w-4" />
             </Button>
           </div>
         </div>
       </div>
-      }
 
       {/* Content */}
       {viewMode === 'table' ? (
@@ -214,7 +200,6 @@ export default function MunicipalitiesPage() {
           selectedMunicipalities={selectedMunicipalities}
           onSelectAll={handleSelectAll}
           onSelectMunicipality={handleSelectMunicipality}
-          onSort={setSorting}
           onEdit={setEditingMunicipality}
           onDelete={setDeletingMunicipality}
         />
@@ -309,14 +294,83 @@ interface TableViewProps {
   selectedMunicipalities: number[]
   onSelectAll: (checked: boolean) => void
   onSelectMunicipality: (id: number, checked: boolean) => void
-  onSort: (field: string, order: 'asc' | 'desc') => void
   onEdit: (municipality: Municipality) => void
   onDelete: (municipality: Municipality) => void
 }
 
-function TableView({ data, isLoading, selectedMunicipalities, onSelectAll, onSelectMunicipality, onSort, onEdit, onDelete }: TableViewProps) {
+function TableView({ data, isLoading, selectedMunicipalities, onSelectAll, onSelectMunicipality, onEdit, onDelete }: TableViewProps) {
   const [hoveredRow, setHoveredRow] = useState<number | null>(null)
+  const [sortField, setSortField] = useState<string>('totalDocuments')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  
+  // Client-side sorting function
+  const sortMunicipalities = (municipalities: Municipality[], field: string, order: 'asc' | 'desc') => {
+    return [...municipalities].sort((a, b) => {
+      let aValue: any
+      let bValue: any
+      
+      switch (field) {
+        case 'name':
+          aValue = a.name?.toLowerCase() || ''
+          bValue = b.name?.toLowerCase() || ''
+          break
+        case 'updated_at':
+          aValue = new Date(a.updated_at || 0).getTime()
+          bValue = new Date(b.updated_at || 0).getTime()
+          break
+        case 'totalDocuments':
+          aValue = a.totalDocuments || 0
+          bValue = b.totalDocuments || 0
+          break
+        case 'created_at':
+          aValue = new Date(a.created_at || 0).getTime()
+          bValue = new Date(b.created_at || 0).getTime()
+          break
+        default:
+          return 0
+      }
+      
+      if (aValue < bValue) return order === 'asc' ? -1 : 1
+      if (aValue > bValue) return order === 'asc' ? 1 : -1
+      return 0
+    })
+  }
+
+  // Get sorted data
+  const sortedData = data?.data ? sortMunicipalities(data.data, sortField, sortOrder) : []
+
+  // Helper component for sortable headers
+  const SortableHeader = ({ field, children }: { field: string; children: React.ReactNode }) => {
+    const isCurrentSort = sortField === field
+    const currentOrder = sortOrder
+    const nextOrder = isCurrentSort && currentOrder === 'asc' ? 'desc' : 'asc'
+    
+    const handleSort = () => {
+      setSortField(field)
+      setSortOrder(nextOrder)
+    }
+    
+    return (
+      <TableHead 
+        className="cursor-pointer hover:bg-muted/50 select-none"
+        onClick={handleSort}
+      >
+        <div className="flex items-center gap-2">
+          {children}
+          {isCurrentSort ? (
+            currentOrder === 'asc' ? (
+              <ChevronUp className="h-4 w-4" />
+            ) : (
+              <ChevronDown className="h-4 w-4" />
+            )
+          ) : (
+            <ChevronsUpDown className="h-4 w-4 opacity-50" />
+          )}
+        </div>
+      </TableHead>
+    )
+  }
   
   const handleMouseEnter = (municipalityId: number) => {
     if (hoverTimeoutRef.current) {
@@ -363,21 +417,24 @@ function TableView({ data, isLoading, selectedMunicipalities, onSelectAll, onSel
             <TableRow>
               <TableHead className="w-12">
                 <Checkbox
-                  checked={selectedMunicipalities.length === data?.data?.length && data?.data?.length > 0}
+                  checked={selectedMunicipalities.length === sortedData.length && sortedData.length > 0}
                   onCheckedChange={onSelectAll}
                 />
               </TableHead>
-              <TableHead className="cursor-pointer" onClick={() => onSort('name', 'asc')}>
+              <SortableHeader field="name">
                 Municipality
-              </TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Documents</TableHead>
-              <TableHead>Last Updated</TableHead>
+              </SortableHeader>
+              <SortableHeader field="totalDocuments">
+                Documents
+              </SortableHeader>
+              <SortableHeader field="updated_at">
+                Last Updated
+              </SortableHeader>
               <TableHead>Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {data?.data?.map((municipality: Municipality) => (
+            {sortedData.map((municipality: Municipality) => (
               <TableRow key={municipality.id}>
                 <TableCell>
                   <Checkbox
@@ -401,11 +458,6 @@ function TableView({ data, isLoading, selectedMunicipalities, onSelectAll, onSel
                   </div>
                 </TableCell>
                 <TableCell>
-                  <Badge variant={municipality.status === 'active' ? 'default' : 'secondary'} className="text-xs">
-                    {municipality.status}
-                  </Badge>
-                </TableCell>
-                <TableCell>
                   <div className="text-sm">
                     <div className="font-medium">{municipality.totalDocuments || 0} total</div>
                     <div className="text-xs text-muted-foreground">
@@ -415,9 +467,9 @@ function TableView({ data, isLoading, selectedMunicipalities, onSelectAll, onSel
                 </TableCell>
                 <TableCell>
                   <div className="text-sm">
-                    <div>{municipality.lastScrape?.date ? format(new Date(municipality.lastScrape.date), 'MMM d, yyyy') : 'Never'}</div>
+                    <div>{municipality.updated_at ? format(new Date(municipality.updated_at), 'MMM d, yyyy') : 'Never'}</div>
                     <div className="text-xs text-muted-foreground">
-                      {municipality.lastScrape?.documentsFound || 0} documents found
+                      Last modified
                     </div>
                   </div>
                 </TableCell>
@@ -536,14 +588,6 @@ function GridView({ data, isLoading, onEdit, onDelete }: GridViewProps) {
                   {municipality.updated_at ? format(new Date(municipality.updated_at), 'MMM d') : 'Never'}
                 </span>
               </div>
-              {municipality.lastScrape && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Last Scrape:</span>
-                  <span className="font-medium">
-                    {format(new Date(municipality.lastScrape.date), 'MMM d')}
-                  </span>
-                </div>
-              )}
             </div>
             <div className="mt-4 flex gap-2">
               <Button variant="outline" size="sm" asChild>
@@ -587,9 +631,6 @@ function CreateMunicipalityDialog({ onSuccess }: CreateMunicipalityDialogProps) 
       await createMutation.mutateAsync({
         name: formData.get('name') as string,
         website_url: formData.get('website_url') as string,
-        scraper_name: formData.get('scraper_name') as string || null,
-        schedule_frequency: (formData.get('schedule_frequency') as ScheduleFrequency) || null,
-        schedule_active: formData.get('schedule_active') === 'on',
       })
       
       setOpen(false)
@@ -635,31 +676,6 @@ function CreateMunicipalityDialog({ onSuccess }: CreateMunicipalityDialogProps) 
                 required
               />
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="scraper_name">Scraper Name (Optional)</Label>
-              <Input
-                id="scraper_name"
-                name="scraper_name"
-                placeholder="toronto_scraper"
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="schedule_frequency">Schedule Frequency</Label>
-              <Select name="schedule_frequency">
-                <SelectTrigger>
-                  <SelectValue placeholder="Select frequency" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="weekly">Weekly</SelectItem>
-                  <SelectItem value="monthly">Monthly</SelectItem>
-                  <SelectItem value="quarterly">Quarterly</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-center space-x-2">
-              <Checkbox id="schedule_active" name="schedule_active" />
-              <Label htmlFor="schedule_active">Enable automatic scheduling</Label>
-            </div>
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
@@ -703,9 +719,6 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
         data: {
           name: formData.get('name') as string,
           website_url: formData.get('website_url') as string,
-          scraper_name: formData.get('scraper_name') as string || null,
-          schedule_frequency: (formData.get('schedule_frequency') as ScheduleFrequency) || null,
-          schedule_active: formData.get('schedule_active') === 'on',
         }
       })
       
@@ -744,35 +757,6 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
                 defaultValue={municipality.website_url}
                 required
               />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="edit-scraper_name">Scraper Name (Optional)</Label>
-              <Input
-                id="edit-scraper_name"
-                name="scraper_name"
-                defaultValue={municipality.scraper_name || ''}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="edit-schedule_frequency">Schedule Frequency</Label>
-              <Select name="schedule_frequency" defaultValue={municipality.schedule_frequency || undefined}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select frequency" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="weekly">Weekly</SelectItem>
-                  <SelectItem value="monthly">Monthly</SelectItem>
-                  <SelectItem value="quarterly">Quarterly</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-center space-x-2">
-              <Checkbox 
-                id="edit-schedule_active" 
-                name="schedule_active" 
-                defaultChecked={municipality.schedule_active}
-              />
-              <Label htmlFor="edit-schedule_active">Enable automatic scheduling</Label>
             </div>
           </div>
           <DialogFooter>

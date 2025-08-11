@@ -12,7 +12,8 @@ const getDocumentsQuerySchema = z.object({
   isAduRelevant: z.string().optional().transform(val => val === 'true' ? true : val === 'false' ? false : undefined),
   isAnalyzed: z.string().optional().transform(val => val === 'true' ? true : val === 'false' ? false : undefined),
   isFavorited: z.string().optional().transform(val => val === 'true' ? true : val === 'false' ? false : undefined),
-  sort: z.enum(['title', 'date_found', 'file_size', 'municipality_name', 'relevance_confidence', 'relevance']).optional().default('date_found'),
+  category: z.string().optional(),
+  sort: z.enum(['title', 'date_found', 'last_checked', 'file_size', 'municipality_name', 'relevance_score', 'relevance']).optional().default('date_found'),
   order: z.enum(['asc', 'desc']).optional().default('desc'),
 })
 
@@ -46,6 +47,7 @@ export async function GET(request: NextRequest) {
       isAduRelevant, 
       isAnalyzed, 
       isFavorited, 
+      category,
       sort: sortBy, 
       order: sortOrder 
     } = validation.data
@@ -72,10 +74,10 @@ export async function GET(request: NextRequest) {
         conditions.push(`and(content_text.not.is.null,content_text.ilike.%${search}%)`)
       }
       
-      // Add individual word matches if we have multiple words
-      if (searchWords.length > 1) {
+      // Add individual word matches if we have multiple words (but limit to prevent timeout)
+      if (searchWords.length > 1 && searchWords.length <= 5) {
         searchWords.forEach(word => {
-          if (word.trim().length > 0) {
+          if (word.trim().length > 2) { // Only search longer words to improve performance
             conditions.push(`title.ilike.%${word}%`)
             conditions.push(`filename.ilike.%${word}%`)
             conditions.push(`and(content_text.not.is.null,content_text.ilike.%${word}%)`)
@@ -94,15 +96,44 @@ export async function GET(request: NextRequest) {
       
       // Apply other filters
       if (isAduRelevant !== undefined) {
-        searchQuery = searchQuery.eq('is_adu_relevant', isAduRelevant)
+        searchQuery = searchQuery.eq('is_relevant', isAduRelevant)
       }
       
       if (isAnalyzed !== undefined) {
-        searchQuery = searchQuery.eq('content_analyzed', isAnalyzed)
+        // Filter based on content_text presence (extracted = has content)
+        if (isAnalyzed === true) {
+          searchQuery = searchQuery.not('content_text', 'is', null).neq('content_text', '')
+        } else {
+          searchQuery = searchQuery.or('content_text.is.null,content_text.eq.')
+        }
       }
       
       if (isFavorited !== undefined) {
         searchQuery = searchQuery.eq('is_favorited', isFavorited)
+      }
+      
+      // Apply category filter using JSONB query
+      if (category) {
+        // Category format from URL is like "property-specifications"
+        // We need to map it to the actual category name
+        const categoryMap: Record<string, string> = {
+          'property-specifications': 'Property Specifications',
+          'adu-aru': 'ADU/ARU Regulations',
+          'dimensional': 'Dimensional Requirements',
+          'parking-access': 'Parking/Access',
+          'infrastructure': 'Infrastructure',
+          'zoning': 'Zoning',
+          'building-types': 'Building Types',
+          'existing-buildings': 'Existing Buildings'
+        }
+        
+        const categoryName = categoryMap[category]
+        if (categoryName) {
+          // Filter documents where the category exists in the JSONB and has a score > 30
+          searchQuery = searchQuery
+            .not('categories', 'is', null)
+            .gte(`categories->>${categoryName}`, 30)
+        }
       }
       
       // Apply sorting
@@ -113,7 +144,7 @@ export async function GET(request: NextRequest) {
       }
       
       // Get more results for ranking, then paginate
-      searchQuery = searchQuery.limit(1000) // Get many results for ranking
+      searchQuery = searchQuery.limit(500) // Get many results for ranking
       
       const { data: allResults, error: searchError, count } = await searchQuery
       
@@ -147,10 +178,11 @@ export async function GET(request: NextRequest) {
         }
         
         // Boost for ADU relevant documents
-        if (doc.is_adu_relevant) score += 20
+        if (doc.is_relevant) score += 20
         
         // Boost for analyzed documents  
-        if (doc.content_analyzed) score += 10
+        // Check if content has been extracted
+        if (doc.content_text && doc.content_text.length > 0) score += 10
         
         return { ...doc, searchScore: score }
       }).sort((a, b) => b.searchScore - a.searchScore) // Sort by score descending
@@ -268,7 +300,8 @@ export async function GET(request: NextRequest) {
             municipalityId,
             isAduRelevant,
             isAnalyzed,
-            isFavorited
+            isFavorited,
+            category
           }
         }
       }
@@ -291,15 +324,44 @@ export async function GET(request: NextRequest) {
     }
 
     if (isAduRelevant !== undefined) {
-      query = query.eq('is_adu_relevant', isAduRelevant)
+      query = query.eq('is_relevant', isAduRelevant)
     }
 
     if (isAnalyzed !== undefined) {
-      query = query.eq('content_analyzed', isAnalyzed)
+      // Filter based on content_text presence (extracted = has content)
+      if (isAnalyzed === true) {
+        query = query.not('content_text', 'is', null).neq('content_text', '')
+      } else {
+        query = query.or('content_text.is.null,content_text.eq.')
+      }
     }
 
     if (isFavorited !== undefined) {
       query = query.eq('is_favorited', isFavorited)
+    }
+    
+    // Apply category filter using JSONB query
+    if (category) {
+      // Category format from URL is like "property-specifications"
+      // We need to map it to the actual category name
+      const categoryMap: Record<string, string> = {
+        'property-specifications': 'Property Specifications',
+        'adu-aru': 'ADU/ARU Regulations',
+        'dimensional': 'Dimensional Requirements',
+        'parking-access': 'Parking/Access',
+        'infrastructure': 'Infrastructure',
+        'zoning': 'Zoning',
+        'building-types': 'Building Types',
+        'existing-buildings': 'Existing Buildings'
+      }
+      
+      const categoryName = categoryMap[category]
+      if (categoryName) {
+        // Filter documents where the category exists in the JSONB and has a score > 30
+        query = query
+          .not('categories', 'is', null)
+          .gte(`categories->>${categoryName}`, 30)
+      }
     }
 
     // Apply sorting
@@ -386,7 +448,8 @@ export async function GET(request: NextRequest) {
           municipalityId,
           isAduRelevant,
           isAnalyzed,
-          isFavorited
+          isFavorited,
+          category
         }
       }
     }

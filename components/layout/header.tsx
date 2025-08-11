@@ -1,9 +1,6 @@
 import Link from "next/link"
-import { HelpCircle } from "lucide-react"
 import { MainNav, MobileNav } from "./main-nav"
 import { ThemeToggle } from "./theme-toggle"
-import { Button } from "@/components/ui/button"
-import { HelpTooltip } from "@/components/ui/help-tooltip"
 
 export function Header() {
   return (
@@ -13,12 +10,6 @@ export function Header() {
         <MobileNav />
         
         <div className="flex items-center space-x-2">
-          <Button variant="ghost" size="sm" asChild>
-            <Link href="/help">
-              <HelpCircle className="h-4 w-4" />
-              <span className="sr-only">Help</span>
-            </Link>
-          </Button>
           <ThemeToggle />
         </div>
       </div>

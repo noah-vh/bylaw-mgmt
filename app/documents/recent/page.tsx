@@ -82,7 +82,7 @@ export default function RecentDocumentsPage() {
   const getTimeRangeStats = () => {
     const stats = {
       total: recentDocuments.length,
-      relevant: recentDocuments.filter(doc => doc.is_adu_relevant).length,
+      relevant: recentDocuments.filter(doc => doc.is_relevant).length,
       analyzed: recentDocuments.filter(doc => doc.content_analyzed).length,
       municipalities: new Set(recentDocuments.map(doc => doc.municipality_id)).size
     }
@@ -296,7 +296,7 @@ export default function RecentDocumentsPage() {
                         </div>
 
                         <div className="flex items-center space-x-2">
-                          {document.is_adu_relevant && (
+                          {document.is_relevant && (
                             <Badge variant="default">Relevant</Badge>
                           )}
                           {document.content_analyzed && (

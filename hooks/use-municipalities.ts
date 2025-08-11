@@ -153,9 +153,9 @@ async function deleteMunicipality(id: MunicipalityId): Promise<void> {
 // Custom hooks
 export function useMunicipalities(params: MunicipalitySearchParams = {}) {
   return useQuery({
-    queryKey: municipalityKeys.list(params),
+    queryKey: [...municipalityKeys.list(params), 'v2'], // Force cache invalidation with version
     queryFn: () => fetchMunicipalities(params),
-    staleTime: 1000 * 60 * 5, // 5 minutes
+    staleTime: 0, // Disable cache temporarily to ensure fresh data
   })
 }
 
@@ -251,6 +251,7 @@ export function useBulkUpdateScraperAssignments() {
 export function useMunicipalitySearch() {
   const [searchParams, setSearchParams] = useState<MunicipalitySearchParams>({
     page: 1,
+    limit: 100, // Show more municipalities by default
     sort: 'name',
     order: 'asc',
   })

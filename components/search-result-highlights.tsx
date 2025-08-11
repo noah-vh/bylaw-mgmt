@@ -84,7 +84,7 @@ export function SearchResultHighlights({
           return (
             <mark
               key={index}
-              className="bg-yellow-200 dark:bg-yellow-900/50 text-inherit font-medium px-0.5 rounded"
+              className="bg-yellow-200 dark:bg-yellow-300 text-black dark:text-black font-medium px-1 py-0.5 rounded shadow-sm"
             >
               {part}
             </mark>

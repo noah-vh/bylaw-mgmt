@@ -20,10 +20,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }
 
 
-    // Get municipality details
+    // Get municipality details with document count using JOIN
     const { data: municipality, error: muniError } = await supabase
       .from('municipalities')
-      .select('*')
+      .select(`
+        *,
+        pdf_documents(count)
+      `)
       .eq('id', municipalityId)
       .single()
 
@@ -67,9 +70,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       .order('scrape_date', { ascending: false })
       .limit(50)
 
-    // Calculate statistics
-    const totalDocuments = documents?.length || 0
-    const relevantDocuments = documents?.filter(doc => doc.is_adu_relevant).length || 0
+    // Get correct total document count from JOIN result
+    const totalDocuments = municipality.pdf_documents?.[0]?.count || 0
+    
+    // Calculate statistics for displayed documents (limited to 100)
+    const relevantDocuments = documents?.filter(doc => doc.is_relevant).length || 0
     const analyzedDocuments = documents?.filter(doc => doc.content_analyzed).length || 0
 
     // Get scraping success rate
@@ -90,11 +95,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           ...municipality,
           totalDocuments,
           relevantDocuments,
-          lastScrape: latestScrape ? {
-            date: latestScrape.scrape_date,
-            status: latestScrape.status,
-            documentsFound: latestScrape.documents_found
-          } : null
+          // Remove the nested data to clean up response
+          pdf_documents: undefined
         },
         documents: documents || [],
         stats: {

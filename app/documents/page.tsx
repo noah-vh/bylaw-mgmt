@@ -1,7 +1,8 @@
 "use client"
 
-import React, { useState, useRef, useEffect, useCallback } from "react"
+import React, { useState, useRef, useEffect, useCallback, Suspense } from "react"
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import { 
   FileText, 
   Search, 
@@ -11,7 +12,6 @@ import {
   Download, 
   Star, 
   StarOff,
-  Building2, 
   Calendar, 
   SortAsc,
   SortDesc,
@@ -19,17 +19,13 @@ import {
   List,
   RefreshCw,
   ExternalLink,
-  CheckCircle,
-  Clock,
-  AlertCircle,
   Share2,
-  FileText as FileTextIcon,
-  Cpu as ProcessorIcon,
-  XCircle,
-  Loader2,
-  Play,
-  Settings,
-  Brain,
+  Upload,
+  ChevronDown,
+  ChevronUp,
+  Building2,
+  Home,
+  Car,
   Zap
 } from "lucide-react"
 import { DocumentViewer } from "@/components/document-viewer"
@@ -57,28 +53,74 @@ import {
   DropdownMenuTrigger,
   DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { 
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 
 import { 
   useDocumentSearch, 
   useToggleDocumentFavorite
 } from "@/hooks/use-documents"
 import { useMunicipalities } from "@/hooks/use-municipalities"
+import { useCategories } from "@/hooks/use-categories"
 import { format } from "date-fns"
-import type { PdfDocument, DownloadStatus, ExtractionStatus, AnalysisStatus, DocumentSearchParams, DocumentId, createDocumentId } from "@/types/database"
-import { ProcessingStatusBadge } from "@/components/processing-status"
-import { DocumentPipelineStatus } from "@/components/document-pipeline-status"
+import type { PdfDocument, DocumentSearchParams, DocumentId } from "@/types/database"
+import { createDocumentId, createMunicipalityId } from "@/types/database"
+import { DocumentUploadForm } from "@/components/document-upload-form"
 
-export default function DocumentsPage() {
+// Document Status Component
+interface DocumentStatusProps {
+  document: PdfDocument & { municipality?: { name: string } }
+}
+
+function DocumentStatus({ document }: DocumentStatusProps) {
+  // Determine status based on content_text field
+  let status: 'extracted' | 'pending' | 'error' = 'pending'
+  let variant: 'default' | 'outline' | 'destructive' = 'outline'
+  
+  if (document.content_text && document.content_text.length > 0) {
+    status = 'extracted'
+    variant = 'default'
+  }
+  // You could add error detection here if needed
+  // else if (document.extraction_error) {
+  //   status = 'error'
+  //   variant = 'destructive'
+  // }
+  
+  return (
+    <Badge variant={variant} className="text-xs capitalize">
+      {status}
+    </Badge>
+  )
+}
+
+function DocumentsPageContent() {
+  const urlSearchParams = useSearchParams()
+  const categoryFromUrl = urlSearchParams.get('category')
+  
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('table')
-  const [selectedDocuments, setSelectedDocuments] = useState<DocumentId[]>([])
   const [showFilters, setShowFilters] = useState(false)
   const [selectedDocument, setSelectedDocument] = useState<(PdfDocument & { municipality?: { name: string } }) | null>(null)
-  const [pipelineFilter, setPipelineFilter] = useState<'all' | 'pending' | 'processing' | 'completed' | 'failed'>('all')
+  const [showUploadDialog, setShowUploadDialog] = useState(false)
+  const [selectedMunicipalities, setSelectedMunicipalities] = useState<number[]>([])
+  const [municipalityFilterExpanded, setMunicipalityFilterExpanded] = useState(false)
+  const [hasContentFilter, setHasContentFilter] = useState<boolean | undefined>(undefined)
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(categoryFromUrl)
   
   const {
     data,
@@ -94,10 +136,33 @@ export default function DocumentsPage() {
     setPage,
     setLimit,
     setSorting,
+    setCategory,
     refetch
-  } = useDocumentSearch('', 'fulltext')
+  } = useDocumentSearch('', 'fulltext', categoryFromUrl)
+
+  // Load municipalities for the filter dropdown
+  const { data: municipalitiesData } = useMunicipalities({ limit: 100 })
   
-  // Ensure search type is always fulltext
+  // Load categories for the filter and sort by document count
+  const { categories: rawCategoriesData, loading: categoriesLoading } = useCategories()
+  const categoriesData = rawCategoriesData ? [...rawCategoriesData].sort((a, b) => b.totalDocuments - a.totalDocuments) : []
+  
+  // Calculate document counts per municipality based on current filtered data
+  const municipalityDocumentCounts = React.useMemo(() => {
+    const counts: Record<number, number> = {}
+    const docs = data?.data || []
+    
+    docs.forEach(doc => {
+      if (!counts[doc.municipality_id]) {
+        counts[doc.municipality_id] = 0
+      }
+      counts[doc.municipality_id]++
+    })
+    
+    return counts
+  }, [data?.data])
+  
+  // Ensure search type is always fulltext and sync category from URL
   React.useEffect(() => {
     console.log('Documents page search params:', searchParams)
     if (searchParams.searchType !== 'fulltext') {
@@ -105,6 +170,14 @@ export default function DocumentsPage() {
       setSearchType('fulltext')
     }
   }, [searchParams.searchType, setSearchType])
+  
+  // Sync category from URL on mount
+  React.useEffect(() => {
+    if (categoryFromUrl && categoryFromUrl !== selectedCategory) {
+      setSelectedCategory(categoryFromUrl)
+      setCategory(categoryFromUrl)
+    }
+  }, [categoryFromUrl])
   
   // Debug search changes
   React.useEffect(() => {
@@ -115,58 +188,29 @@ export default function DocumentsPage() {
   
   const searchType = 'fulltext'
   
-  // Apply pipeline filter by updating search params when filter changes
+  // Apply municipality filter
   React.useEffect(() => {
-    // Don't auto-update if user hasn't set a pipeline filter
-    if (pipelineFilter === 'all') return
-    
-    // Update search params based on pipeline filter without triggering re-renders
-    const params: Partial<DocumentSearchParams> = {}
-    
-    switch (pipelineFilter) {
-      case 'pending':
-        // Create new object with readonly properties for pending status
-        Object.assign(params, { downloadStatus: 'pending' as const })
-        break
-      case 'processing':
-        // Show documents currently being processed
-        Object.assign(params, { downloadStatus: 'downloading' as const })
-        break
-      case 'completed':
-        // Show fully processed documents
-        Object.assign(params, { 
-          downloadStatus: 'downloaded' as const,
-          extractionStatus: 'completed' as const,
-          analysisStatus: 'completed' as const
-        })
-        break
-      case 'failed':
-        // This would need custom handling in the API
-        Object.assign(params, { downloadStatus: 'error' as const })
-        break
+    if (selectedMunicipalities.length === 1) {
+      setMunicipality(createMunicipalityId(selectedMunicipalities[0]))
+    } else if (selectedMunicipalities.length === 0) {
+      setMunicipality(undefined)
     }
-    
-    // Apply the filter (this would require extending the updateSearch method)
-    console.log('Pipeline filter applied:', pipelineFilter, params)
-  }, [pipelineFilter])
+    // Note: The current API doesn't support multiple municipality selection
+    // This would need backend changes to support an array of municipalities
+  }, [selectedMunicipalities]) // Removed setMunicipality from dependencies to prevent infinite loop
 
-  const { data: municipalitiesData } = useMunicipalities({ limit: 100 })
   const toggleFavoriteMutation = useToggleDocumentFavorite()
-
-  const handleSelectAll = (checked: boolean) => {
-    if (checked) {
-      setSelectedDocuments(data?.data.map(d => d.id) || [])
-    } else {
-      setSelectedDocuments([])
-    }
-  }
-
-  const handleSelectDocument = (id: DocumentId, checked: boolean) => {
-    if (checked) {
-      setSelectedDocuments(prev => [...prev, id])
-    } else {
-      setSelectedDocuments(prev => prev.filter(selectedId => selectedId !== id))
-    }
+  
+  const handleOpenDocument = (document: PdfDocument & { municipality?: { name: string } }) => {
+    console.log('Documents page - Opening document:', {
+      id: document.id,
+      title: document.title,
+      hasContent: !!document.content_text,
+      contentLength: document.content_text?.length || 0,
+      contentType: typeof document.content_text,
+      storage_path: document.storage_path
+    })
+    setSelectedDocument(document)
   }
 
   const handleToggleFavorite = async (documentId: DocumentId) => {
@@ -177,27 +221,6 @@ export default function DocumentsPage() {
     }
   }
   
-  const handleBulkProcessing = async (type: 'extraction' | 'analysis') => {
-    if (selectedDocuments.length === 0) return
-    
-    console.log(`Bulk ${type} requested for ${selectedDocuments.length} documents`)
-    // Placeholder functionality - processing hook has been removed
-    // In a real implementation, this would trigger the appropriate processing pipeline
-    
-    // Clear selection after starting processing
-    setSelectedDocuments([])
-    // Refresh data to show updated processing status
-    setTimeout(() => refetch(), 1000)
-  }
-  
-  const handleDocumentProcessing = useCallback(async (documentId: DocumentId, stage: 'download' | 'extract' | 'analyze') => {
-    console.log(`Processing request for document ${documentId}, stage: ${stage}`)
-    // Placeholder functionality - processing hook has been removed
-    // In a real implementation, this would trigger the appropriate processing pipeline
-    
-    // Refresh data to show updated processing status
-    setTimeout(() => refetch(), 1000)
-  }, [refetch])
 
 
   if (error) {
@@ -223,209 +246,379 @@ export default function DocumentsPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <BulkProcessingControls 
-            selectedDocuments={selectedDocuments}
-            onBulkExtract={() => handleBulkProcessing('extraction')}
-            onBulkAnalyze={() => handleBulkProcessing('analysis')}
-          />
-          <Button variant="outline" onClick={() => refetch()}>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Refresh
-          </Button>
+          <Dialog open={showUploadDialog} onOpenChange={setShowUploadDialog}>
+            <DialogTrigger asChild>
+              <Button>
+                <Upload className="mr-2 h-4 w-4" />
+                Upload Document
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Upload Bylaw Document</DialogTitle>
+                <DialogDescription>
+                  Upload a PDF document to add it to your municipal bylaw collection
+                </DialogDescription>
+              </DialogHeader>
+              <DocumentUploadForm
+                municipalities={municipalitiesData?.data ? [...municipalitiesData.data] : []}
+                onUploadSuccess={(document) => {
+                  setShowUploadDialog(false)
+                  refetch() // Refresh the documents list
+                }}
+                onCancel={() => setShowUploadDialog(false)}
+              />
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 
-      {/* Filters and Search */}
-      <div className="flex flex-col lg:flex-row gap-4 mb-6">
-        <div className="flex-1">
-          <div className="space-y-2">
-            <div className="relative">
-              <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search document titles and content..."
-                value={searchParams.search || ''}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-8"
-              />
+      {/* Search Input and Controls */}
+      <div className="mb-6">
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search document titles and content..."
+              value={searchParams.search || ''}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+          
+          {/* Category Dropdown */}
+          <Select
+            value={selectedCategory || "all"}
+            onValueChange={(value) => {
+              if (value === "all") {
+                setSelectedCategory(null)
+                setCategory(undefined)
+                const newUrl = new URL(window.location.href)
+                newUrl.searchParams.delete('category')
+                window.history.replaceState({}, '', newUrl.toString())
+              } else {
+                setSelectedCategory(value)
+                setCategory(value)
+                const newUrl = new URL(window.location.href)
+                newUrl.searchParams.set('category', value)
+                window.history.replaceState({}, '', newUrl.toString())
+              }
+            }}
+          >
+            <SelectTrigger className="w-[200px] h-10 text-left">
+              <SelectValue placeholder="All Categories" className="text-left" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Categories</SelectItem>
+              {categoriesLoading ? (
+                <SelectItem value="loading" disabled>Loading...</SelectItem>
+              ) : categoriesData.length > 0 ? (
+                categoriesData.map((category) => {
+                  // Clean up any multiple spaces and trim
+                  const cleanName = category.name.replace(/\s+/g, ' ').trim()
+                  return (
+                    <SelectItem key={category.id} value={category.id} textValue={cleanName}>
+                      {cleanName}
+                    </SelectItem>
+                  )
+                })
+              ) : null}
+            </SelectContent>
+          </Select>
+          
+          <div className="flex gap-2">
+            <DropdownMenu modal={false}>
+              <DropdownMenuTrigger className="inline-flex items-center justify-center h-10 px-4 py-2 text-sm font-medium rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50">
+                <Filter className="mr-2 h-4 w-4" />
+                Filters
+                {(searchParams.isAduRelevant || searchParams.isAnalyzed || searchParams.isFavorited || hasContentFilter) && (
+                  <Badge variant="secondary" className="ml-2 h-5 px-1">
+                    {[searchParams.isAduRelevant, searchParams.isAnalyzed, searchParams.isFavorited, hasContentFilter].filter(Boolean).length}
+                  </Badge>
+                )}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel>Document Filters</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                
+                <DropdownMenuCheckboxItem
+                  checked={searchParams.isAduRelevant === true}
+                  onCheckedChange={(checked) => setRelevanceFilter(checked || undefined)}
+                >
+                  ADU Relevant Only
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem
+                  checked={searchParams.isAnalyzed === true}
+                  onCheckedChange={(checked) => setAnalyzedFilter(checked || undefined)}
+                >
+                  Extracted Only
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem
+                  checked={hasContentFilter === true}
+                  onCheckedChange={(checked) => setHasContentFilter(checked ? true : undefined)}
+                >
+                  Content Extracted
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem
+                  checked={searchParams.isFavorited === true}
+                  onCheckedChange={(checked) => setFavoritesFilter(checked || undefined)}
+                >
+                  Favorites Only
+                </DropdownMenuCheckboxItem>
+                
+                {(searchParams.isAduRelevant || searchParams.isAnalyzed || searchParams.isFavorited || hasContentFilter) && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => {
+                        setRelevanceFilter(undefined)
+                        setAnalyzedFilter(undefined)
+                        setFavoritesFilter(undefined)
+                        setHasContentFilter(undefined)
+                      }}
+                      className="text-sm text-muted-foreground cursor-pointer"
+                    >
+                      Clear all filters
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu modal={false}>
+              <DropdownMenuTrigger className="inline-flex items-center justify-center h-10 px-4 py-2 text-sm font-medium rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50">
+                {searchParams.order === 'desc' ? <SortDesc className="mr-2 h-4 w-4" /> : <SortAsc className="mr-2 h-4 w-4" />}
+                Sort
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>Sort By</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setSorting('date_found', 'desc')} className="cursor-pointer">
+                  Date Found (Newest)
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setSorting('date_found', 'asc')} className="cursor-pointer">
+                  Date Found (Oldest)
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setSorting('title', 'asc')} className="cursor-pointer">
+                  Title (A-Z)
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setSorting('title', 'desc')} className="cursor-pointer">
+                  Title (Z-A)
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setSorting('relevance_score', 'desc')} className="cursor-pointer">
+                  Relevance Score
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <div className="flex gap-1">
+              <Button
+                variant={viewMode === 'table' ? 'default' : 'outline'}
+                size="icon"
+                onClick={() => setViewMode('table')}
+                className="h-10 w-10"
+              >
+                <List className="h-4 w-4" />
+              </Button>
+              <Button
+                variant={viewMode === 'grid' ? 'default' : 'outline'}
+                size="icon"
+                onClick={() => setViewMode('grid')}
+                className="h-10 w-10"
+              >
+                <Grid3x3 className="h-4 w-4" />
+              </Button>
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <DropdownMenu modal={false}>
-            <DropdownMenuTrigger className="inline-flex items-center justify-between w-48 h-10 px-4 py-2 text-sm font-medium rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50">
-              {searchParams.municipalityId 
-                ? municipalitiesData?.data?.find(m => m.id === searchParams.municipalityId)?.name || 'Select municipality'
-                : 'All Municipalities'}
-              <Building2 className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-56" sideOffset={5}>
-              <div className="sticky top-0 p-2 bg-background">
-                <div className="relative">
-                  <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search municipalities..."
-                    className="pl-8 h-8"
-                    onClick={(e) => e.stopPropagation()}
-                    onChange={(e) => {
-                      const searchValue = e.target.value.toLowerCase()
-                      const items = document.querySelectorAll('[data-municipality-name]')
-                      items.forEach(item => {
-                        const name = item.getAttribute('data-municipality-name')?.toLowerCase() || ''
-                        if (name.includes(searchValue)) {
-                          (item as HTMLElement).style.display = ''
-                        } else {
-                          (item as HTMLElement).style.display = 'none'
-                        }
-                      })
-                    }}
-                  />
-                </div>
-              </div>
-              <DropdownMenuSeparator />
-              <div className="max-h-[300px] overflow-y-auto">
-                <DropdownMenuItem 
-                  onSelect={() => setMunicipality(undefined)}
-                  className="cursor-pointer"
-                >
-                  All Municipalities
-                </DropdownMenuItem>
-                {municipalitiesData?.data?.map((municipality) => (
-                  <DropdownMenuItem 
-                    key={municipality.id}
-                    onSelect={() => setMunicipality(municipality.id)}
-                    data-municipality-name={municipality.name}
-                    className="cursor-pointer"
-                  >
-                    {municipality.name}
-                  </DropdownMenuItem>
-                ))}
-              </div>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          
-          <DropdownMenu modal={false}>
-            <DropdownMenuTrigger className="inline-flex items-center justify-center h-10 px-4 py-2 text-sm font-medium rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50">
-              <Filter className="mr-2 h-4 w-4" />
-              Filters
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel>Document Filters</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuCheckboxItem
-                checked={searchParams.isAduRelevant === true}
-                onCheckedChange={(checked) => setRelevanceFilter(checked || undefined)}
-              >
-                ADU Relevant Only
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={searchParams.isAnalyzed === true}
-                onCheckedChange={(checked) => setAnalyzedFilter(checked || undefined)}
-              >
-                Analyzed Only
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={searchParams.isFavorited === true}
-                onCheckedChange={(checked) => setFavoritesFilter(checked || undefined)}
-              >
-                Favorites Only
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel>Pipeline Status</DropdownMenuLabel>
-              <DropdownMenuCheckboxItem
-                checked={pipelineFilter === 'pending'}
-                onCheckedChange={(checked) => setPipelineFilter(checked ? 'pending' : 'all')}
-              >
-                Pending Processing
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={pipelineFilter === 'processing'}
-                onCheckedChange={(checked) => setPipelineFilter(checked ? 'processing' : 'all')}
-              >
-                Currently Processing
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={pipelineFilter === 'completed'}
-                onCheckedChange={(checked) => setPipelineFilter(checked ? 'completed' : 'all')}
-              >
-                Fully Processed
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={pipelineFilter === 'failed'}
-                onCheckedChange={(checked) => setPipelineFilter(checked ? 'failed' : 'all')}
-              >
-                Processing Failed
-              </DropdownMenuCheckboxItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          <DropdownMenu modal={false}>
-            <DropdownMenuTrigger className="inline-flex items-center justify-center h-10 px-4 py-2 text-sm font-medium rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50">
-              {searchParams.order === 'desc' ? <SortDesc className="mr-2 h-4 w-4" /> : <SortAsc className="mr-2 h-4 w-4" />}
-              Sort
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>Sort By</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => setSorting('date_found', 'desc')} className="cursor-pointer">
-                Date Found (Newest)
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setSorting('date_found', 'asc')} className="cursor-pointer">
-                Date Found (Oldest)
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setSorting('title', 'asc')} className="cursor-pointer">
-                Title (A-Z)
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setSorting('title', 'desc')} className="cursor-pointer">
-                Title (Z-A)
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setSorting('relevance_confidence', 'desc')} className="cursor-pointer">
-                Relevance Score
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          <div className="flex gap-1">
-            <Button
-              variant={viewMode === 'table' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setViewMode('table')}
-            >
-              <List className="h-4 w-4" />
-            </Button>
-            <Button
-              variant={viewMode === 'grid' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setViewMode('grid')}
-            >
-              <Grid3x3 className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
       </div>
 
+      {/* Municipality Filter Badges */}
+      <div className="mb-6">
+        <Collapsible open={municipalityFilterExpanded} onOpenChange={setMunicipalityFilterExpanded}>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium">Filter by municipality:</span>
+              {selectedMunicipalities.length > 0 && (
+                <Badge variant="secondary" className="text-xs">
+                  {selectedMunicipalities.length} selected
+                </Badge>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {selectedMunicipalities.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedMunicipalities([])}
+                  className="h-8 text-muted-foreground hover:text-foreground"
+                >
+                  Clear all
+                </Button>
+              )}
+              {municipalityFilterExpanded && municipalitiesData?.data && municipalitiesData.data.length > 5 && (
+                <CollapsibleTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-8 text-muted-foreground hover:text-foreground">
+                    View less
+                  </Button>
+                </CollapsibleTrigger>
+              )}
+            </div>
+          </div>
+          
+          {/* Collapsed view - show first row with "more" button */}
+          <div className="flex gap-2 items-center overflow-hidden flex-wrap">
+            <Button
+              variant={selectedMunicipalities.length === 0 ? "default" : "outline"}
+              size="sm"
+              onClick={() => setSelectedMunicipalities([])}
+              className="h-8"
+            >
+              All
+              {selectedMunicipalities.length === 0 && data?.pagination?.total && (
+                <Badge variant="secondary" className="ml-1 text-[10px] px-1 py-0 h-4">
+                  {data.pagination.total}
+                </Badge>
+              )}
+            </Button>
+            {municipalitiesData?.data
+              ? [...municipalitiesData.data].sort((a, b) => {
+                // Sort by category-filtered counts when category is selected
+                if (selectedCategory) {
+                  const aCount = municipalityDocumentCounts[a.id] || 0
+                  const bCount = municipalityDocumentCounts[b.id] || 0
+                  return bCount - aCount
+                }
+                // Otherwise sort by total documents
+                const aCount = a.totalDocuments || 0
+                const bCount = b.totalDocuments || 0
+                return bCount - aCount // Sort descending by count
+              }).slice(0, 5).map((municipality) => {
+              const isSelected = selectedMunicipalities.includes(municipality.id)
+              // Use category-filtered count if available, otherwise fall back to total
+              const docCount = municipalityDocumentCounts[municipality.id] || 0
+              const totalDocs = selectedCategory ? docCount : (municipality.totalDocuments || 0)
+              
+              return (
+                <Button
+                  key={municipality.id}
+                  variant={isSelected ? "default" : "outline"}  
+                  size="sm"
+                  onClick={() => {
+                    if (isSelected) {
+                      // Remove from selection
+                      setSelectedMunicipalities(prev => prev.filter(id => id !== municipality.id))
+                    } else {
+                      // Add to selection
+                      setSelectedMunicipalities(prev => [...prev, municipality.id])
+                    }
+                  }}
+                  className="h-8"
+                  disabled={selectedCategory && (!docCount || docCount === 0)}
+                >
+                  {municipality.name}
+                  {totalDocs > 0 && (
+                    <Badge variant="secondary" className="ml-1 text-[10px] px-1 py-0 h-4">
+                      {totalDocs}
+                    </Badge>
+                  )}
+                </Button>
+              )
+            })
+            : null}
+            {!municipalityFilterExpanded && municipalitiesData?.data && municipalitiesData.data.length > 5 && (
+              <CollapsibleTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8">
+                  +{municipalitiesData.data.length - 5} more
+                </Button>
+              </CollapsibleTrigger>
+            )}
+          </div>
+
+          <CollapsibleContent>
+            <div className="flex flex-wrap gap-2 items-center pt-2">
+              {municipalitiesData?.data
+                ? [...municipalitiesData.data].sort((a, b) => {
+                  // Sort by category-filtered counts when category is selected
+                  if (selectedCategory) {
+                    const aCount = municipalityDocumentCounts[a.id] || 0
+                    const bCount = municipalityDocumentCounts[b.id] || 0
+                    return bCount - aCount
+                  }
+                  // Otherwise sort by total documents
+                  const aCount = a.totalDocuments || 0
+                  const bCount = b.totalDocuments || 0
+                  return bCount - aCount // Sort descending by count
+                }).slice(5).map((municipality) => {
+                const isSelected = selectedMunicipalities.includes(municipality.id)
+                // Use category-filtered count if available, otherwise fall back to total
+                const docCount = municipalityDocumentCounts[municipality.id] || 0
+                const totalDocs = selectedCategory ? docCount : (municipality.totalDocuments || 0)
+                
+                return (
+                  <Button
+                    key={municipality.id}
+                    variant={isSelected ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => {
+                      if (isSelected) {
+                        // Remove from selection
+                        setSelectedMunicipalities(prev => prev.filter(id => id !== municipality.id))
+                      } else {
+                        // Add to selection
+                        setSelectedMunicipalities(prev => [...prev, municipality.id])
+                      }
+                    }}
+                    className="h-8"
+                    disabled={selectedCategory && (!docCount || docCount === 0)}
+                  >
+                    {municipality.name}
+                    {totalDocs > 0 && (
+                      <Badge variant="secondary" className="ml-1 text-[10px] px-1 py-0 h-4">
+                        {totalDocs}
+                      </Badge>
+                    )}
+                  </Button>
+                )
+              })
+              : null}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      </div>
 
       {/* Content */}
       {viewMode === 'table' ? (
         <DocumentTableView
           key={`table-${searchParams.municipalityId || 'all'}`}
-          data={data}
+          data={hasContentFilter ? {
+            ...data,
+            data: data?.data?.filter((doc: PdfDocument) => !!doc.content_text),
+            pagination: data?.pagination ? {
+              ...data.pagination,
+              total: data.data?.filter((doc: PdfDocument) => !!doc.content_text).length || 0
+            } : undefined
+          } : data}
           isLoading={isLoading}
-          selectedDocuments={selectedDocuments}
           searchParams={searchParams}
           setSorting={setSorting}
-          onSelectAll={handleSelectAll}
-          onSelectDocument={handleSelectDocument}
           onToggleFavorite={handleToggleFavorite}
-          onOpenDocument={setSelectedDocument}
-          onReprocess={handleDocumentProcessing}
+          onOpenDocument={handleOpenDocument}
         />
       ) : (
         <DocumentGridView
           key={`grid-${searchParams.municipalityId || 'all'}`}
-          data={data}
+          data={hasContentFilter ? {
+            ...data,
+            data: data?.data?.filter((doc: PdfDocument) => !!doc.content_text),
+            pagination: data?.pagination ? {
+              ...data.pagination,
+              total: data.data?.filter((doc: PdfDocument) => !!doc.content_text).length || 0
+            } : undefined
+          } : data}
           isLoading={isLoading}
           onToggleFavorite={handleToggleFavorite}
-          onOpenDocument={setSelectedDocument}
+          onOpenDocument={handleOpenDocument}
         />
       )}
 
@@ -493,97 +686,23 @@ export default function DocumentsPage() {
   )
 }
 
-// Document stage status badge component
-function DocumentStageStatusBadge({ document }: { document: PdfDocument }) {
-  // Simple status determination based on document properties
-  const getStatus = () => {
-    if (document.analysis_status === 'completed') {
-      return {
-        label: 'Processed',
-        className: 'bg-green-100 text-green-800',
-        icon: CheckCircle,
-        tooltip: 'Document has been fully analyzed for ADU relevance'
-      }
-    }
-    if (document.extraction_status === 'completed') {
-      return {
-        label: 'Extracted',
-        className: 'bg-blue-100 text-blue-800',
-        icon: FileTextIcon,
-        tooltip: 'PDF content has been extracted and is ready for analysis'
-      }
-    }
-    if (document.download_status === 'downloaded') {
-      return {
-        label: 'Downloaded',
-        className: 'bg-yellow-100 text-yellow-800',
-        icon: Download,
-        tooltip: 'Document has been downloaded successfully'
-      }
-    }
-    if (document.download_status === 'error' || document.extraction_status === 'failed' || document.analysis_status === 'failed') {
-      return {
-        label: 'Failed',
-        className: 'bg-red-100 text-red-800',
-        icon: AlertCircle,
-        tooltip: 'Processing failed - see document details for more information'
-      }
-    }
-    return {
-      label: 'Pending',
-      className: 'bg-gray-100 text-gray-800',
-      icon: Clock,
-      tooltip: 'Document is queued for processing'
-    }
-  }
-
-  const status = getStatus()
-  const IconComponent = status.icon
-
-  return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium ${status.className}`}>
-            <IconComponent className="h-3 w-3" />
-            {status.label}
-          </span>
-        </TooltipTrigger>
-        <TooltipContent>
-          <div className="text-sm">
-            {status.tooltip}
-          </div>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  )
-}
-
 // Table view component
 interface DocumentTableViewProps {
   data: any
   isLoading: boolean
-  selectedDocuments: DocumentId[]
   searchParams: DocumentSearchParams
   setSorting: (sort: string, order: 'asc' | 'desc') => void
-  onSelectAll: (checked: boolean) => void
-  onSelectDocument: (id: DocumentId, checked: boolean) => void
   onToggleFavorite: (id: DocumentId) => void
   onOpenDocument: (document: PdfDocument & { municipality?: { name: string } }) => void
-  onReprocess: (documentId: DocumentId, stage: 'download' | 'extract' | 'analyze') => void
 }
 
 function DocumentTableView({ 
   data, 
   isLoading, 
-  selectedDocuments,
   searchParams,
   setSorting, 
-  onSelectAll, 
-  onSelectDocument,
   onToggleFavorite,
-  onOpenDocument,
-  onReprocess 
+  onOpenDocument
 }: DocumentTableViewProps) {
   const [hoveredRow, setHoveredRow] = useState<number | null>(null)
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -632,12 +751,6 @@ function DocumentTableView({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-12">
-                <Checkbox
-                  checked={selectedDocuments.length === data?.data?.length && data?.data?.length > 0}
-                  onCheckedChange={onSelectAll}
-                />
-              </TableHead>
               <TableHead>
                 <button
                   onClick={() => setSorting('title', searchParams.sort === 'title' && searchParams.order === 'asc' ? 'desc' : 'asc')}
@@ -666,30 +779,25 @@ function DocumentTableView({
               </TableHead>
               <TableHead>
                 <button
-                  onClick={() => setSorting('date_found', searchParams.sort === 'date_found' && searchParams.order === 'asc' ? 'desc' : 'asc')}
+                  onClick={() => setSorting('last_checked', searchParams.sort === 'last_checked' && searchParams.order === 'asc' ? 'desc' : 'asc')}
                   className="inline-flex items-center gap-1 font-medium hover:text-foreground transition-colors"
                 >
-                  Date Found
-                  {searchParams.sort === 'date_found' && (
+                  Last Updated
+                  {searchParams.sort === 'last_checked' && (
                     searchParams.order === 'asc' ? 
                     <SortAsc className="h-3 w-3 opacity-60" /> : 
                     <SortDesc className="h-3 w-3 opacity-60" />
                   )}
                 </button>
               </TableHead>
-              <TableHead>Pipeline Status</TableHead>
+              <TableHead>Date Published</TableHead>
+              <TableHead>Document Content</TableHead>
               <TableHead>Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {data?.data?.map((document: PdfDocument & { municipality?: { name: string } }) => (
               <TableRow key={document.id} className="group">
-                <TableCell>
-                  <Checkbox
-                    checked={selectedDocuments.includes(document.id)}
-                    onCheckedChange={(checked) => onSelectDocument(document.id, checked as boolean)}
-                  />
-                </TableCell>
                 <TableCell>
                   <div className="max-w-md">
                     <div className="flex items-center gap-2 mb-1">
@@ -712,14 +820,14 @@ function DocumentTableView({
                     </div>
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <span className="truncate">{document.filename}</span>
-                      {document.is_adu_relevant && (
+                      {document.is_relevant && (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-badge-primary text-white">
                           ADU Relevant
                         </span>
                       )}
-                      {document.relevance_confidence && (
+                      {document.relevance_score && (
                         <RelevanceScoreBadge 
-                          score={document.relevance_confidence * 100} 
+                          score={document.relevance_score * 100} 
                           size="sm"
                         />
                       )}
@@ -737,23 +845,20 @@ function DocumentTableView({
                   </div>
                 </TableCell>
                 <TableCell>
-                  <div className="flex items-center gap-1">
-                    <Building2 className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">{document.municipality_name || 'Unknown'}</span>
-                  </div>
+                  <div className="text-sm">{document.municipality_name || 'Unknown'}</div>
                 </TableCell>
                 <TableCell>
                   <div className="text-sm">
-                    {format(new Date(document.date_found), 'MMM d, yyyy')}
+                    {document.last_checked ? format(new Date(document.last_checked), 'MMM d, yyyy') : 'Never'}
                   </div>
                 </TableCell>
                 <TableCell>
-                  <DocumentPipelineStatus 
-                    document={document} 
-                    size="sm" 
-                    showActions={true}
-                    onReprocess={onReprocess}
-                  />
+                  <div className="text-sm text-muted-foreground">
+                    {(document as any).date_published ? format(new Date((document as any).date_published), 'MMM d, yyyy') : 'N/A'}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <DocumentStatus document={document} />
                 </TableCell>
                 <TableCell className="relative">
                   <div 
@@ -882,7 +987,6 @@ function DocumentGridView({ data, isLoading, onToggleFavorite, onOpenDocument }:
                 </CardTitle>
                 <CardDescription className="text-sm">
                   <div className="flex items-center gap-1 mb-1">
-                    <Building2 className="h-3 w-3" />
                     <span className="truncate">{document.municipality_name || 'Unknown'}</span>
                   </div>
                   <div className="flex items-center gap-1">
@@ -907,23 +1011,19 @@ function DocumentGridView({ data, isLoading, onToggleFavorite, onOpenDocument }:
           <CardContent>
             <div className="space-y-3">
               <div className="space-y-2">
-                <DocumentPipelineStatus 
-                  document={document} 
-                  size="sm" 
-                  showActions={false}
-                />
                 <div className="flex flex-wrap gap-1">
-                  {document.is_adu_relevant && (
+                  {document.is_relevant && (
                     <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-badge-primary text-white">
                       ADU Relevant
                     </span>
                   )}
-                  {document.relevance_confidence && (
+                  {document.relevance_score && (
                     <RelevanceScoreBadge 
-                      score={document.relevance_confidence * 100} 
+                      score={document.relevance_score * 100} 
                       size="sm"
                     />
                   )}
+                  <DocumentStatus document={document} />
                 </div>
               </div>
               
@@ -960,99 +1060,23 @@ function DocumentGridView({ data, isLoading, onToggleFavorite, onOpenDocument }:
   )
 }
 
-// Bulk Processing Controls Component
-interface BulkProcessingControlsProps {
-  selectedDocuments: DocumentId[]
-  onBulkExtract: () => void
-  onBulkAnalyze: () => void
-}
-
-function BulkProcessingControls({ selectedDocuments, onBulkExtract, onBulkAnalyze }: BulkProcessingControlsProps) {
-  const selectedCount = selectedDocuments.length
-  const [isProcessing, setIsProcessing] = useState(false)
-  
-  const handleBulkAction = async (action: () => Promise<void>) => {
-    setIsProcessing(true)
-    try {
-      await action()
-    } finally {
-      setIsProcessing(false)
-    }
-  }
-  
-  if (selectedCount === 0) {
-    return (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="outline">
-            <Settings className="mr-2 h-4 w-4" />
-            Bulk Actions
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem disabled>
-            Select documents to enable bulk actions
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    )
-  }
-  
+export default function DocumentsPage() {
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline" disabled={isProcessing}>
-          {isProcessing ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Settings className="mr-2 h-4 w-4" />
-          )}
-          Bulk Actions ({selectedCount})
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel>
-          Process {selectedCount} document{selectedCount === 1 ? '' : 's'}
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem 
-          onClick={() => handleBulkAction(async () => onBulkExtract())} 
-          className="cursor-pointer"
-          disabled={isProcessing}
-        >
-          <FileTextIcon className="mr-2 h-4 w-4" />
-          <span>Extract Text Content</span>
-        </DropdownMenuItem>
-        <DropdownMenuItem 
-          onClick={() => handleBulkAction(async () => onBulkAnalyze())} 
-          className="cursor-pointer"
-          disabled={isProcessing}
-        >
-          <Brain className="mr-2 h-4 w-4" />
-          <span>Analyze for Relevance</span>
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem 
-          onClick={() => handleBulkAction(async () => {
-            await onBulkExtract()
-            // Small delay before starting analysis
-            await new Promise(resolve => setTimeout(resolve, 2000))
-            await onBulkAnalyze()
-          })}
-          className="cursor-pointer"
-          disabled={isProcessing}
-        >
-          <Zap className="mr-2 h-4 w-4" />
-          <span>Extract + Analyze</span>
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem 
-          className="text-xs text-muted-foreground cursor-default"
-          disabled
-        >
-          Processing jobs will appear in the background
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <Suspense fallback={
+      <div className="container mx-auto px-4 py-8">
+        <div className="animate-pulse">
+          <div className="h-8 bg-muted rounded w-1/4 mb-2"></div>
+          <div className="h-4 bg-muted rounded w-1/3 mb-8"></div>
+          <div className="h-10 bg-muted rounded mb-6"></div>
+          <div className="space-y-3">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="h-16 bg-muted rounded"></div>
+            ))}
+          </div>
+        </div>
+      </div>
+    }>
+      <DocumentsPageContent />
+    </Suspense>
   )
 }

@@ -5,8 +5,10 @@ import { z } from 'zod'
 // Validation schema for global search
 const globalSearchSchema = z.object({
   q: z.string().min(2).max(255),
-  types: z.array(z.enum(['documents', 'municipalities', 'keywords', 'scrapers'])).optional(),
-  limit: z.string().optional().transform(val => val ? parseInt(val, 10) : 100), // Much higher default, no artificial max
+  types: z.array(z.enum(['documents', 'municipalities', 'keywords'])).optional(),
+  limit: z.string().optional().transform(val => val ? parseInt(val, 10) : 100), // Default to 100
+  offset: z.string().optional().transform(val => val ? parseInt(val, 10) : 0), // For pagination
+  municipalityIds: z.array(z.string().transform(Number)).optional(), // For filtering by municipality
 })
 
 // GET /api/search/global - Global search across documents, municipalities, and keywords
@@ -15,10 +17,14 @@ export async function GET(request: NextRequest) {
   
   try {
     const searchParams = request.nextUrl.searchParams
+    const typesParam = searchParams.getAll('types[]')
+    const municipalityIdsParam = searchParams.getAll('municipalityIds[]')
     const queryParams = {
       q: searchParams.get('q') || '',
-      types: searchParams.getAll('types[]'),
-      limit: searchParams.get('limit') || '5',
+      types: typesParam.length > 0 ? typesParam : ['documents', 'municipalities', 'keywords'],
+      limit: searchParams.get('limit') || '100', // Default to 100
+      offset: searchParams.get('offset') || '0', // For pagination
+      municipalityIds: municipalityIdsParam.length > 0 ? municipalityIdsParam : undefined,
     }
     
     const validation = globalSearchSchema.safeParse(queryParams)
@@ -33,127 +39,211 @@ export async function GET(request: NextRequest) {
       )
     }
     
-    const { q: query, types = ['documents', 'municipalities', 'keywords', 'scrapers'], limit } = validation.data
+    const { q: query, types, limit, offset, municipalityIds } = validation.data
 
     const results = {
       documents: [] as any[],
       municipalities: [] as any[],
       keywords: [] as any[],
-      scrapers: [] as any[],
+      municipalityCounts: [] as any[],
+      pagination: {
+        documentsTotal: 0,
+        hasMore: false,
+        offset,
+        limit
+      }
     }
 
     // Parallel search across different types
     const searchPromises = []
+    
+    // Get municipality counts for accurate filtering
+    const municipalityCountsPromise = (async () => {
+      try {
+        // Try the RPC function first
+        const { data: counts, error } = await supabase.rpc('get_municipality_counts_for_search', {
+          search_query: query
+        })
+        
+        if (!error && counts) {
+          results.municipalityCounts = counts
+        } else {
+          // Fallback: get counts manually (simplified)
+          console.log('Municipality counts RPC not available, using simple counts')
+          const { data: municipalities } = await supabase
+            .from('municipalities')
+            .select('id, name')
+            .limit(50)
+          
+          if (municipalities) {
+            results.municipalityCounts = municipalities.map(m => ({
+              municipality_id: m.id,
+              municipality_name: m.name,
+              document_count: 0 // Will be updated by frontend
+            }))
+          }
+        }
+      } catch (error) {
+        console.log('Municipality counts error:', error)
+      }
+    })()
+    
+    searchPromises.push(municipalityCountsPromise)
 
     // Search documents
-    if (types.includes('documents')) {
-      searchPromises.push(
-        (async () => {
-          try {
-            // Use direct query for document search
-            console.log('Global search - searching documents for:', query, 'with limit:', limit)
+    if (types && types.includes('documents')) {
+      const searchPromise = (async () => {
+        try {
+          // Try optimized search first if available
+          const { data: optimizedData, error: optimizedError } = await supabase.rpc('search_documents_optimized', {
+            search_query: query,
+            max_results: limit,
+            result_offset: offset,
+            filter_municipality_ids: municipalityIds && municipalityIds.length > 0 ? municipalityIds : null
+          })
+          
+          if (!optimizedError && optimizedData) {
+            console.log('Using optimized search, returned', optimizedData.length, 'documents')
+          } else {
+            console.log('Optimized search failed:', optimizedError?.message || 'No data returned')
+          }
+          
+          if (!optimizedError && optimizedData) {
+            // Process optimized results
+            const hasMore = optimizedData.length > 0 && optimizedData[0].has_more
             
-            // Get all potential matches without limit, then rank them
-            const searchWords = query.toLowerCase().split(' ').filter(word => word.trim().length > 0)
+            // Get total count using faster count function
+            const { data: totalCount } = await supabase.rpc('get_search_count_fast', {
+              search_query: query,
+              filter_municipality_ids: municipalityIds && municipalityIds.length > 0 ? municipalityIds : null
+            })
             
-            console.log('Global search - processing query:', { query, searchWords })
+            // Get municipality names
+            const uniqueMunicipalityIds = [...new Set(optimizedData.map(doc => doc.municipality_id).filter(Boolean))]
+            let municipalityMap: Record<number, string> = {}
             
-            // Build comprehensive search conditions
-            const conditions = []
-            
-            // Add exact phrase matches (highest priority) - always include these
-            conditions.push(`title.ilike.%${query}%`)
-            conditions.push(`filename.ilike.%${query}%`) // Also search filenames
-            if (query.trim().length > 0) {
-              conditions.push(`and(content_text.not.is.null,content_text.ilike.%${query}%)`)
+            if (uniqueMunicipalityIds.length > 0) {
+              const { data: municipalities } = await supabase
+                .from('municipalities')
+                .select('id, name')
+                .in('id', uniqueMunicipalityIds)
+              
+              municipalityMap = (municipalities || []).reduce((acc, muni) => {
+                acc[muni.id] = muni.name
+                return acc
+              }, {} as Record<number, string>)
             }
             
-            // Add individual word matches if we have multiple words
-            if (searchWords.length > 1) {
-              searchWords.forEach(word => {
-                if (word.trim().length > 0) {
-                  conditions.push(`title.ilike.%${word}%`)
-                  conditions.push(`filename.ilike.%${word}%`)
-                  conditions.push(`and(content_text.not.is.null,content_text.ilike.%${word}%)`)
-                }
-              })
-            }
+            // Generate content snippets for optimized results by fetching content_text
+            const docIds = optimizedData.map(doc => doc.id)
+            let contentSnippets: Record<number, string> = {}
             
-            console.log('Global search - search conditions:', conditions)
-            
-            const { data: allMatches, error: searchError } = await supabase
-              .from('pdf_documents')
-              .select('*')
-              .or(conditions.join(','))
-              .limit(1000) // Very high limit to get all matches
+            if (docIds.length > 0) {
+              const { data: contentData } = await supabase
+                .from('pdf_documents')
+                .select('id, content_text')
+                .in('id', docIds)
+                .not('content_text', 'is', null)
               
-            if (searchError) {
-              console.error('Document search error in global search:', searchError)
-              return
-            }
-            
-            console.log('Global search - raw matches found:', allMatches?.length)
-            
-            // Rank the results
-            const rankedResults = allMatches?.map(doc => {
-              let score = 0
-              const titleLower = doc.title?.toLowerCase() || ''
-              const filenameLower = doc.filename?.toLowerCase() || ''
-              const contentLower = doc.content_text?.toLowerCase() || ''
-              const queryLower = query.toLowerCase()
-              
-              // Exact phrase matches get highest scores
-              if (titleLower.includes(queryLower)) score += 100
-              if (filenameLower.includes(queryLower)) score += 90
-              if (contentLower.includes(queryLower)) score += 80
-              
-              // Individual word matches (for multi-word queries)
-              searchWords.forEach(word => {
-                const wordLower = word.toLowerCase()
-                if (titleLower.includes(wordLower)) score += 10
-                if (filenameLower.includes(wordLower)) score += 5
-                if (contentLower.includes(wordLower)) score += 3
-              })
-              
-              // If no score yet, this document shouldn't be filtered out
-              // Give it a minimal score if it matched the database query
-              if (score === 0) {
-                score = 1 // Minimal score to prevent filtering
+              // Generate content snippets for documents with content
+              if (contentData) {
+                contentData.forEach(doc => {
+                  if (doc.content_text) {
+                    const searchTerms = query.toLowerCase().split(' ').filter(Boolean)
+                    const content = doc.content_text.toLowerCase()
+                    
+                    // Find first match in content
+                    let snippetStart = -1
+                    for (const term of searchTerms) {
+                      if (term.length > 0) {
+                        const index = content.indexOf(term)
+                        if (index !== -1) {
+                          if (snippetStart === -1 || index < snippetStart) {
+                            snippetStart = index
+                          }
+                        }
+                      }
+                    }
+                    
+                    if (snippetStart !== -1) {
+                      // Extract a snippet around the found term
+                      const start = Math.max(0, snippetStart - 100)
+                      const end = Math.min(doc.content_text.length, snippetStart + 200)
+                      let snippet = doc.content_text.substring(start, end).trim()
+                      if (start > 0) snippet = '...' + snippet
+                      if (end < doc.content_text.length) snippet = snippet + '...'
+                      
+                      // Apply highlighting to the snippet
+                      searchTerms.forEach(term => {
+                        if (term.length > 0) {
+                          const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+                          snippet = snippet.replace(
+                            new RegExp(`(${escapedTerm})`, 'gi'),
+                            '<mark class="bg-yellow-200 dark:bg-yellow-300 text-black dark:text-black font-medium px-1 py-0.5 rounded shadow-sm">$1</mark>'
+                          )
+                        }
+                      })
+                      
+                      contentSnippets[doc.id] = snippet
+                    }
+                  }
+                })
               }
-              
-              // Boost for ADU relevant documents
-              if (doc.is_adu_relevant) score += 20
-              
-              // Boost for analyzed documents
-              if (doc.content_analyzed) score += 10
-              
-              return { ...doc, searchScore: score }
-            }).sort((a, b) => b.searchScore - a.searchScore) // Sort by score descending
-            .slice(0, limit) // Apply limit after ranking
-            
-            console.log('Global search - ranked results:', {
-              totalRanked: rankedResults?.length,
-              topScores: rankedResults?.slice(0, 3).map(doc => ({ title: doc.title, score: doc.searchScore }))
-            })
-            
-            const searchData = rankedResults || []
-            
-            console.log('Global search - document results:', {
-              query,
-              resultsCount: searchData?.length || 0,
-              hasError: !!searchError,
-              firstResultTitle: searchData?.[0]?.title,
-              firstResultHasContent: !!searchData?.[0]?.content_text
-            })
-            
-            if (searchError) {
-              console.error('Document search error in global search:', searchError)
-              return
             }
+
+            results.documents = optimizedData.map(doc => ({
+              ...doc,
+              is_relevant: doc.is_relevant,
+              adu_category_score: doc.categories?.['ADU/ARU Regulations'] || 0,
+              content_snippet: contentSnippets[doc.id] || null,
+              municipality: municipalityMap[doc.municipality_id] ? {
+                id: doc.municipality_id,
+                name: municipalityMap[doc.municipality_id]
+              } : null
+            }))
             
-            if (searchData && searchData.length > 0) {
+            results.pagination.hasMore = hasMore
+            results.pagination.documentsTotal = totalCount || -1
+            return // Exit early if optimized search worked
+          }
+          
+          // Fallback to simpler search if optimized not available
+          console.log('Optimized search not available, using fallback')
+          
+          // Build the query - ONLY search title and filename to avoid timeout
+          let searchQuery = supabase
+            .from('pdf_documents')
+            .select('*')
+          
+          // Search only in title and filename for now (content search times out)
+          searchQuery = searchQuery.or(`title.ilike.%${query}%,filename.ilike.%${query}%`)
+          
+          // Add municipality filter if provided
+          if (municipalityIds && municipalityIds.length > 0) {
+            console.log('Filtering by municipalities:', municipalityIds)
+            searchQuery = searchQuery.in('municipality_id', municipalityIds)
+          } else {
+            console.log('No municipality filter, searching all')
+          }
+          
+          // Fetch one extra result to check if there are more pages
+          const { data: fallbackData, error: searchError } = await searchQuery
+            .range(offset, offset + limit) // This already limits to limit+1 items
+            .order('date_found', { ascending: false }) // Order by newest first
+          
+          if (searchError) {
+            console.error('Search error:', searchError)
+          }
+          
+          console.log('Fallback query returned', fallbackData?.length || 0, 'documents')
+            
+          if (!searchError && fallbackData) {
+              // Check if there are more results (we fetched limit+1)
+              const hasMore = fallbackData.length > limit
+              const documentsToProcess = hasMore ? fallbackData.slice(0, limit) : fallbackData
+              
               // Get municipality names
-              const municipalityIds = [...new Set(searchData.map(doc => doc.municipality_id).filter(Boolean))]
+              const municipalityIds = [...new Set(documentsToProcess.map(doc => doc.municipality_id).filter(Boolean))]
               let municipalityMap: Record<number, string> = {}
               
               if (municipalityIds.length > 0) {
@@ -168,138 +258,119 @@ export async function GET(request: NextRequest) {
                 }, {} as Record<number, string>)
               }
 
-              // Create content snippets for search results
-              results.documents = searchData.map(doc => {
+              results.documents = documentsToProcess.map(doc => {
+                // Create better content snippet with context around matched text
                 let contentSnippet = null
-                
-                if (doc.content_text && typeof doc.content_text === 'string' && doc.content_text.trim().length > 0) {
-                  const searchTerms = query.toLowerCase().split(' ').filter(Boolean)
+                if (doc.content_text) {
                   const content = doc.content_text.toLowerCase()
+                  const queryLower = query.toLowerCase()
+                  const matchIndex = content.indexOf(queryLower)
                   
-                  // Find the first occurrence of any search term in content
-                  let snippetStart = -1
-                  for (const term of searchTerms) {
-                    if (term.length > 0) {
-                      const index = content.indexOf(term)
-                      if (index !== -1 && (snippetStart === -1 || index < snippetStart)) {
-                        snippetStart = index
-                      }
-                    }
-                  }
-                  
-                  if (snippetStart !== -1) {
-                    // Extract a snippet around the found term
-                    const start = Math.max(0, snippetStart - 100)
-                    const end = Math.min(doc.content_text.length, snippetStart + 200)
-                    contentSnippet = doc.content_text.substring(start, end).trim()
-                    if (start > 0) contentSnippet = '...' + contentSnippet
-                    if (end < doc.content_text.length) contentSnippet = contentSnippet + '...'
+                  if (matchIndex !== -1) {
+                    // Show context around the match (100 chars before and after)
+                    const start = Math.max(0, matchIndex - 100)
+                    const end = Math.min(doc.content_text.length, matchIndex + queryLower.length + 100)
+                    let snippet = doc.content_text.substring(start, end)
+                    
+                    // Add ellipsis if we're not at the start/end
+                    if (start > 0) snippet = '...' + snippet
+                    if (end < doc.content_text.length) snippet = snippet + '...'
+                    
+                    // Highlight the matched text (case-insensitive replacement)
+                    const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi')
+                    snippet = snippet.replace(regex, '<mark>$1</mark>')
+                    
+                    contentSnippet = snippet
+                  } else {
+                    // Fallback to beginning of content if no match found in content
+                    contentSnippet = doc.content_text.substring(0, 200) + '...'
                   }
                 }
                 
+                // Check ADU relevance from categories
+                const aduCategoryScore = doc.categories?.['ADU/ARU Regulations'] || 0
+                
                 return {
                   ...doc,
+                  is_relevant: doc.is_relevant, // Map is_relevant to is_relevant for frontend
+                  adu_category_score: aduCategoryScore,
                   municipality: municipalityMap[doc.municipality_id] ? {
                     id: doc.municipality_id,
                     name: municipalityMap[doc.municipality_id]
                   } : null,
                   highlighted: {
-                    title: doc.title,
+                    title: doc.title ? doc.title.replace(
+                      new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'), 
+                      '<mark>$1</mark>'
+                    ) : doc.title,
                     content: contentSnippet
                   }
                 }
               })
+              
+              // Store pagination info - we don't know total, but we know if there's more
+              results.pagination.hasMore = hasMore
+              // Estimate total pages (we can't know exact count without timing out)
+              results.pagination.documentsTotal = hasMore ? -1 : offset + documentsToProcess.length
             }
-          } catch (error) {
-            console.error('Unexpected error in document search:', error)
-          }
-        })()
-      )
+        } catch (error) {
+          console.error('Document search error:', error)
+        }
+      })()
+      
+      searchPromises.push(searchPromise)
     }
 
     // Search municipalities
-    if (types.includes('municipalities')) {
-      searchPromises.push(
-        supabase
-          .from('municipalities')
-          .select(`
-            id,
-            name,
-            website_url,
-            status,
-            pdf_documents(count)
-          `)
-          .ilike('name', `%${query}%`)
-          .limit(limit)
-          .then(({ data, error }) => {
-            if (!error && data) {
-              results.municipalities = data.map(muni => ({
-                ...muni,
-                document_count: muni.pdf_documents?.[0]?.count || 0,
-                pdf_documents: undefined // Remove the array from response
-              }))
-            }
-          })
-      )
+    if (types && types.includes('municipalities')) {
+      const municipalityPromise = (async () => {
+        try {
+          const { data, error } = await supabase
+            .from('municipalities')
+            .select(`
+              id,
+              name,
+              website_url,
+              status,
+              pdf_documents(count)
+            `)
+            .ilike('name', `%${query}%`)
+            .limit(limit)
+          
+          if (!error && data) {
+            results.municipalities = data.map(muni => ({
+              ...muni,
+              document_count: muni.pdf_documents?.[0]?.count || 0,
+              pdf_documents: undefined // Remove the array from response
+            }))
+          }
+        } catch (error) {
+          console.error('Municipality search error:', error)
+        }
+      })()
+      
+      searchPromises.push(municipalityPromise)
     }
 
-    // Search scrapers
-    if (types.includes('scrapers')) {
-      const availableScrapers = [
-        { name: 'ajax', description: 'Ajax Municipal Bylaw Scraper', is_enhanced: false, supported: true },
-        { name: 'brampton', description: 'Brampton Municipal Bylaw Scraper', is_enhanced: false, supported: true },
-        { name: 'burlington', description: 'Burlington Municipal Bylaw Scraper', is_enhanced: false, supported: true },
-        { name: 'caledon', description: 'Caledon Municipal Bylaw Scraper', is_enhanced: false, supported: true },
-        { name: 'hamilton', description: 'Hamilton Municipal Bylaw Scraper', is_enhanced: false, supported: true },
-        { name: 'markham', description: 'Markham Municipal Bylaw Scraper', is_enhanced: false, supported: true },
-        { name: 'milton', description: 'Milton Municipal Bylaw Scraper', is_enhanced: false, supported: true },
-        { name: 'mississauga', description: 'Mississauga Municipal Bylaw Scraper', is_enhanced: false, supported: true },
-        { name: 'oakville', description: 'Oakville Municipal Bylaw Scraper', is_enhanced: false, supported: true },
-        { name: 'oshawa', description: 'Oshawa Municipal Bylaw Scraper', is_enhanced: false, supported: true },
-        { name: 'pickering', description: 'Pickering Municipal Bylaw Scraper', is_enhanced: false, supported: true },
-        { name: 'richmond_hill', description: 'Richmond Hill Municipal Bylaw Scraper', is_enhanced: false, supported: true },
-        { name: 'toronto', description: 'Toronto Municipal Bylaw Scraper', is_enhanced: true, supported: true },
-        { name: 'vaughan', description: 'Vaughan Municipal Bylaw Scraper', is_enhanced: false, supported: true },
-        { name: 'whitby', description: 'Whitby Municipal Bylaw Scraper', is_enhanced: false, supported: true },
-        // New versions
-        { name: 'ajax_new', description: 'Ajax Municipal Bylaw Scraper (New)', is_enhanced: true, supported: true },
-        { name: 'brampton_new', description: 'Brampton Municipal Bylaw Scraper (New)', is_enhanced: true, supported: true },
-        { name: 'burlington_new', description: 'Burlington Municipal Bylaw Scraper (New)', is_enhanced: true, supported: true },
-        { name: 'caledon_new', description: 'Caledon Municipal Bylaw Scraper (New)', is_enhanced: true, supported: true },
-        { name: 'hamilton_new', description: 'Hamilton Municipal Bylaw Scraper (New)', is_enhanced: true, supported: true },
-        { name: 'markham_new', description: 'Markham Municipal Bylaw Scraper (New)', is_enhanced: true, supported: true },
-        { name: 'milton_new', description: 'Milton Municipal Bylaw Scraper (New)', is_enhanced: true, supported: true },
-        { name: 'mississauga_new', description: 'Mississauga Municipal Bylaw Scraper (New)', is_enhanced: true, supported: true },
-        { name: 'oakville_new', description: 'Oakville Municipal Bylaw Scraper (New)', is_enhanced: true, supported: true },
-        { name: 'pickering_new', description: 'Pickering Municipal Bylaw Scraper (New)', is_enhanced: true, supported: true },
-        { name: 'richmond_hill_new', description: 'Richmond Hill Municipal Bylaw Scraper (New)', is_enhanced: true, supported: true },
-        { name: 'toronto_new', description: 'Toronto Municipal Bylaw Scraper (New)', is_enhanced: true, supported: true },
-        { name: 'vaughan_new', description: 'Vaughan Municipal Bylaw Scraper (New)', is_enhanced: true, supported: true },
-        { name: 'whitby_new', description: 'Whitby Municipal Bylaw Scraper (New)', is_enhanced: true, supported: true },
-      ]
-      
-      // Filter scrapers that match the query
-      const matchingScrapers = availableScrapers.filter(scraper =>
-        scraper.name.toLowerCase().includes(query.toLowerCase()) ||
-        scraper.description.toLowerCase().includes(query.toLowerCase())
-      ).slice(0, limit)
-      
-      results.scrapers = matchingScrapers
-    }
 
     // Extract keywords from query
-    if (types.includes('keywords')) {
-      const words = query.toLowerCase().split(/\s+/).filter(word => word.length > 3)
-      const commonWords = ['bylaw', 'document', 'municipal', 'regulation', 'policy', 'city', 'town']
-      const keywords = words.filter(word => !commonWords.includes(word))
+    if (types && types.includes('keywords')) {
+      const keywordPromise = (async () => {
+        const words = query.toLowerCase().split(/\s+/).filter(word => word.length > 3)
+        const commonWords = ['bylaw', 'document', 'municipal', 'regulation', 'policy', 'city', 'town']
+        const keywords = words.filter(word => !commonWords.includes(word))
+        
+        results.keywords = keywords.slice(0, limit).map(keyword => ({
+          keyword,
+          type: 'keyword',
+          relevance: 1 // Could implement a relevance score based on frequency
+        }))
+      })()
       
-      results.keywords = keywords.slice(0, limit).map(keyword => ({
-        keyword,
-        type: 'keyword',
-        relevance: 1 // Could implement a relevance score based on frequency
-      }))
+      searchPromises.push(keywordPromise)
     }
 
+    // Wait for all searches to complete
     await Promise.all(searchPromises)
 
     const response = {
@@ -308,9 +379,11 @@ export async function GET(request: NextRequest) {
       meta: {
         duration: Date.now() - startTime,
         types,
-        total: results.documents.length + results.municipalities.length + results.keywords.length + results.scrapers.length
+        total: results.documents.length + results.municipalities.length + results.keywords.length,
+        pagination: results.pagination
       }
     }
+
 
     return NextResponse.json(response)
   } catch (error) {

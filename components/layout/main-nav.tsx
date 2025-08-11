@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Building2, Search, FileText, Settings, Menu, HelpCircle, Zap, BarChart3, Cog } from "lucide-react"
+import { Building2, Search, FileText, Settings, Menu, HelpCircle, Zap, BarChart3, Cog, Home } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -22,6 +22,7 @@ const navigationItems = [
     title: "Home",
     href: "/",
     description: "Bylaw portal dashboard",
+    icon: Home,
   },
   {
     title: "Search",
@@ -34,18 +35,6 @@ const navigationItems = [
     href: "/municipalities",
     description: "Browse municipalities and their bylaws",
     icon: Building2,
-    items: [
-      {
-        title: "All Municipalities",
-        href: "/municipalities",
-        description: "View all available municipalities",
-      },
-      {
-        title: "Add Municipality",
-        href: "/municipalities/new",
-        description: "Add a new municipality to the system",
-      },
-    ],
   },
   {
     title: "Documents",
@@ -144,12 +133,13 @@ export function MainNav({ className }: MainNavProps) {
                       navigationMenuTriggerStyle(),
                       pathname === item.href
                         ? "bg-accent text-accent-foreground"
-                        : "",
-                      "flex items-center"
+                        : ""
                     )}
                   >
-                    {item.icon && <item.icon className="mr-2 h-4 w-4" />}
-                    {item.title}
+                    <span className="flex items-center">
+                      {item.icon && <item.icon className="mr-2 h-4 w-4" />}
+                      {item.title}
+                    </span>
                   </Link>
                 </NavigationMenuLink>
               )}

@@ -27,11 +27,12 @@ import {
   Eye,
   Search,
   Brain,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react"
 import { format } from "date-fns"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { DocumentPipelineStatus } from "@/components/document-pipeline-status"
 import type { PdfDocument, DocumentId } from "@/types/database"
 
 interface DocumentViewerProps {
@@ -42,13 +43,14 @@ interface DocumentViewerProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onToggleFavorite?: (id: DocumentId) => void
+  searchQuery?: string
 }
 
 // Document stage status badge component
 function DocumentStageStatusBadge({ document }: { document: PdfDocument }) {
   // Simple status determination based on document properties
   const getStatus = () => {
-    if (document.analysis_status === 'completed') {
+    if (document.content_analyzed && document.content_text) {
       return {
         label: 'Processed',
         className: 'bg-green-100 text-green-800',
@@ -56,7 +58,7 @@ function DocumentStageStatusBadge({ document }: { document: PdfDocument }) {
         tooltip: 'Document has been fully analyzed for ADU relevance'
       }
     }
-    if (document.extraction_status === 'completed') {
+    if (document.content_text && !document.content_analyzed) {
       return {
         label: 'Extracted',
         className: 'bg-blue-100 text-blue-800',
@@ -64,20 +66,12 @@ function DocumentStageStatusBadge({ document }: { document: PdfDocument }) {
         tooltip: 'PDF content has been extracted and is ready for analysis'
       }
     }
-    if (document.download_status === 'downloaded') {
+    if (document.storage_path) {
       return {
         label: 'Downloaded',
         className: 'bg-yellow-100 text-yellow-800',
         icon: Download,
         tooltip: 'Document has been downloaded successfully'
-      }
-    }
-    if (document.download_status === 'error' || document.extraction_status === 'failed' || document.analysis_status === 'failed') {
-      return {
-        label: 'Failed',
-        className: 'bg-red-100 text-red-800',
-        icon: AlertCircle,
-        tooltip: 'Processing failed - see document details for more information'
       }
     }
     return {
@@ -114,11 +108,17 @@ export function DocumentViewer({
   document, 
   open,
   onOpenChange,
-  onToggleFavorite 
+  onToggleFavorite,
+  searchQuery: initialSearchQuery 
 }: DocumentViewerProps) {
-  const [searchQuery, setSearchQuery] = React.useState("")
+  const [searchQuery, setSearchQuery] = React.useState(initialSearchQuery || "")
   const [highlightedContent, setHighlightedContent] = React.useState("")
   const [activeTab, setActiveTab] = React.useState("content")
+  const [currentMatchIndex, setCurrentMatchIndex] = React.useState(0)
+  const [totalMatches, setTotalMatches] = React.useState(0)
+  const [matchPositions, setMatchPositions] = React.useState<number[]>([])
+  const contentRef = React.useRef<HTMLDivElement>(null)
+  
   
   const municipalityName = document.municipality?.name || document.municipality_name || 'Unknown'
   
@@ -129,24 +129,111 @@ export function DocumentViewer({
     setActiveTab("processing")
   }
   
+  // Initialize search query from prop when modal opens
+  React.useEffect(() => {
+    if (open && initialSearchQuery) {
+      setSearchQuery(initialSearchQuery)
+    }
+  }, [open, initialSearchQuery])
+
   // Create highlighted content when search query or document content changes
   React.useEffect(() => {
     if (!document.content_text) {
       setHighlightedContent("")
+      setTotalMatches(0)
+      setMatchPositions([])
       return
     }
 
     let content = document.content_text
+    const positions: number[] = []
 
     if (searchQuery && searchQuery.trim().length > 0) {
       // Escape special regex characters and create case-insensitive regex
       const escapedQuery = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      const regex = new RegExp(`(${escapedQuery})`, 'gi')
-      content = content.replace(regex, '<mark class="bg-yellow-200 dark:bg-yellow-900/50 font-medium px-0.5 rounded">$1</mark>')
+      const regex = new RegExp(escapedQuery, 'gi')
+      
+      // Find all matches and their positions
+      let match
+      while ((match = regex.exec(document.content_text)) !== null) {
+        positions.push(match.index)
+      }
+      
+      // Replace matches with highlighted version
+      let matchCount = 0
+      content = document.content_text.replace(new RegExp(`(${escapedQuery})`, 'gi'), (match) => {
+        const isCurrentMatch = matchCount === currentMatchIndex
+        matchCount++
+        return `<mark data-match-index="${matchCount - 1}" class="${
+          isCurrentMatch 
+            ? 'bg-yellow-300 dark:bg-yellow-400 text-black dark:text-black' 
+            : 'bg-yellow-200 dark:bg-yellow-300 text-black dark:text-black'
+        } font-medium px-1 py-0.5 rounded transition-colors shadow-sm">${match}</mark>`
+      })
+      
+      setTotalMatches(positions.length)
+      setMatchPositions(positions)
+    } else {
+      setTotalMatches(0)
+      setMatchPositions([])
+      setCurrentMatchIndex(0)
     }
 
     setHighlightedContent(content)
-  }, [document.content_text, searchQuery])
+  }, [document.content_text, searchQuery, currentMatchIndex])
+
+  // Navigation functions
+  const goToNextMatch = () => {
+    if (totalMatches > 0) {
+      const nextIndex = (currentMatchIndex + 1) % totalMatches
+      setCurrentMatchIndex(nextIndex)
+      scrollToMatch(nextIndex)
+    }
+  }
+
+  const goToPreviousMatch = () => {
+    if (totalMatches > 0) {
+      const prevIndex = currentMatchIndex === 0 ? totalMatches - 1 : currentMatchIndex - 1
+      setCurrentMatchIndex(prevIndex)
+      scrollToMatch(prevIndex)
+    }
+  }
+
+  const scrollToMatch = (index: number) => {
+    if (contentRef.current) {
+      const marks = contentRef.current.querySelectorAll('mark')
+      if (marks[index]) {
+        marks[index].scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    }
+  }
+
+  // Handle keyboard shortcuts
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!open) return
+      
+      // Enter key or F3 for next match
+      if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'F3') {
+        e.preventDefault()
+        goToNextMatch()
+      }
+      // Shift+Enter or Shift+F3 for previous match
+      else if ((e.key === 'Enter' && e.shiftKey) || (e.key === 'F3' && e.shiftKey)) {
+        e.preventDefault()
+        goToPreviousMatch()
+      }
+      // Escape to clear search
+      else if (e.key === 'Escape' && searchQuery) {
+        e.preventDefault()
+        setSearchQuery('')
+        setCurrentMatchIndex(0)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [open, searchQuery, totalMatches, currentMatchIndex])
   
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -186,389 +273,201 @@ export function DocumentViewer({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl max-h-[90vh] h-[90vh] flex flex-col overflow-hidden">
-        <DialogHeader className="pb-4">
-          <DialogTitle className="text-xl font-semibold line-clamp-2 pr-8">
-            {document.title}
-          </DialogTitle>
-          <DialogDescription className="flex items-center gap-2 text-muted-foreground">
-            <Building2 className="h-4 w-4" />
-            <span>{municipalityName}</span>
-            <span>•</span>  
-            <Calendar className="h-4 w-4" />
-            <span>{format(new Date(document.date_found), 'MMM d, yyyy')}</span>
-            {document.is_adu_relevant && (
-              <>
+      <DialogContent className="max-w-6xl max-h-[95vh] h-[90vh] flex flex-col overflow-hidden">
+        <DialogHeader className="pb-4 pr-12">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              {document.highlighted?.title ? (
+                <DialogTitle 
+                  className="text-xl font-semibold line-clamp-2 mb-2"
+                  dangerouslySetInnerHTML={{ __html: document.highlighted.title }}
+                />
+              ) : (
+                <DialogTitle className="text-xl font-semibold line-clamp-2 mb-2">
+                  {document.title}
+                </DialogTitle>
+              )}
+              <div className="flex items-center gap-2 text-muted-foreground flex-wrap text-sm">
+                <Building2 className="h-4 w-4" />
+                <span>{municipalityName}</span>
+                <span>•</span>  
+                <Calendar className="h-4 w-4" />
+                <span>{format(new Date(document.date_found), 'MMM d, yyyy')}</span>
                 <span>•</span>
-                <Badge variant="secondary" className="text-xs">
-                  ADU Relevant
-                </Badge>
-              </>
-            )}
-          </DialogDescription>
+                <span className="truncate">{document.filename}</span>
+                {document.file_size && (
+                  <>
+                    <span>•</span>
+                    <span>{Math.round(document.file_size / 1024)} KB</span>
+                  </>
+                )}
+                {document.is_relevant && (
+                  <>
+                    <span>•</span>
+                    <Badge variant="secondary" className="text-xs">
+                      ADU Relevant
+                    </Badge>
+                  </>
+                )}
+                {document.content_analyzed && (
+                  <Badge variant="default" className="text-xs">
+                    Analyzed
+                  </Badge>
+                )}
+                {document.relevance_score !== null && document.relevance_score !== undefined && (
+                  <Badge variant="outline" className="text-xs">
+                    {Math.round(document.relevance_score * 100)}% confidence
+                  </Badge>
+                )}
+              </div>
+            </div>
+            
+            {/* Actions moved to top right */}
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <Button size="sm" asChild>
+                <a href={document.url} target="_blank" rel="noopener noreferrer">
+                  <Eye className="mr-2 h-4 w-4" />
+                  Open PDF
+                </a>
+              </Button>
+              <Button variant="outline" size="sm" asChild>
+                <a href={document.url} download target="_blank" rel="noopener noreferrer">
+                  <Download className="mr-2 h-4 w-4" />
+                  Download
+                </a>
+              </Button>
+              {onToggleFavorite && (
+                <Button 
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onToggleFavorite(document.id)}
+                >
+                  <Star className={`mr-2 h-4 w-4 ${document.is_favorited ? 'fill-current text-yellow-500' : ''}`} />
+                  {document.is_favorited ? 'Favorited' : 'Favorite'}
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (navigator.share) {
+                    navigator.share({
+                      title: document.title,
+                      text: `Check out this document: ${document.title}`,
+                      url: document.url
+                    })
+                  } else {
+                    navigator.clipboard.writeText(document.url)
+                  }
+                }}
+              >
+                <Share2 className="mr-2 h-4 w-4" />
+                Share
+              </Button>
+            </div>
+          </div>
         </DialogHeader>
 
-        {/* Actions */}
-        <div className="flex flex-wrap gap-2 pb-4 border-b">
-          <Button asChild>
-            <a href={document.url} target="_blank" rel="noopener noreferrer">
-              <Eye className="mr-2 h-4 w-4" />
-              Open PDF
-            </a>
-          </Button>
-          <Button variant="outline" asChild>
-            <a href={document.url} download target="_blank" rel="noopener noreferrer">
-              <Download className="mr-2 h-4 w-4" />
-              Download
-            </a>
-          </Button>
-          {onToggleFavorite && (
-            <Button 
-              variant="outline"
-              onClick={() => onToggleFavorite(document.id)}
-            >
-              <Star className={`mr-2 h-4 w-4 ${document.is_favorited ? 'fill-current text-yellow-500' : ''}`} />
-              {document.is_favorited ? 'Favorited' : 'Favorite'}
-            </Button>
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              if (navigator.share) {
-                navigator.share({
-                  title: document.title,
-                  text: `Check out this document: ${document.title}`,
-                  url: document.url
-                })
-              } else {
-                navigator.clipboard.writeText(document.url)
-              }
-            }}
-          >
-            <Share2 className="mr-2 h-4 w-4" />
-            Share
-          </Button>
-        </div>
-
-        {/* Content Tabs */}
-        <div className="flex-1 flex flex-col min-h-0">
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="content">Document Content</TabsTrigger>
-              <TabsTrigger value="processing">Processing Status</TabsTrigger>
-              <TabsTrigger value="metadata">Metadata & Analysis</TabsTrigger>
-            </TabsList>
-            
-            <TabsContent value="content" className="flex-1 flex flex-col min-h-0 mt-4">
-              {document.content_text ? (
-                <>
-                  {/* Search Bar */}
-                  <div className="flex items-center gap-2 pb-4">
-                    <div className="relative flex-1">
-                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        placeholder="Search within document..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="pl-10"
-                      />
+        {/* Document Content */}
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          {document.content_text ? (
+            <>
+              {/* Search Bar */}
+              <div className="flex items-center gap-2 mb-4 flex-shrink-0">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search within document..."
+                    value={searchQuery}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value)
+                      setCurrentMatchIndex(0)
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        if (e.shiftKey) {
+                          goToPreviousMatch()
+                        } else {
+                          goToNextMatch()
+                        }
+                      }
+                    }}
+                    className="pl-10 pr-24"
+                  />
+                  {searchQuery && totalMatches > 0 && (
+                    <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center gap-1 text-sm text-muted-foreground">
+                      <span>{currentMatchIndex + 1} / {totalMatches}</span>
                     </div>
-                    {searchQuery && (
+                  )}
+                </div>
+                {searchQuery && (
+                  <>
+                    <div className="flex items-center gap-1">
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => setSearchQuery("")}
+                        onClick={goToPreviousMatch}
+                        disabled={totalMatches === 0}
+                        title="Previous match (Shift+Enter)"
                       >
-                        <X className="h-4 w-4" />
+                        <ChevronUp className="h-4 w-4" />
                       </Button>
-                    )}
-                  </div>
-                  
-                  {/* Document Content */}
-                  <ScrollArea className="flex-1 -mx-6 px-6 border rounded-md h-full">
-                    <div className="py-4 pr-4">
-                      <div className="prose prose-sm max-w-none">
-                        {highlightedContent ? (
-                          <div 
-                            className="whitespace-pre-wrap text-sm leading-relaxed text-foreground"
-                            dangerouslySetInnerHTML={{ __html: highlightedContent }}
-                          />
-                        ) : (
-                          <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-                            {document.content_text}
-                          </div>
-                        )}
-                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={goToNextMatch}
+                        disabled={totalMatches === 0}
+                        title="Next match (Enter)"
+                      >
+                        <ChevronDown className="h-4 w-4" />
+                      </Button>
                     </div>
-                  </ScrollArea>
-                </>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-12 text-center flex-1">
-                  <FileText className="h-12 w-12 text-muted-foreground mb-4" />
-                  <h3 className="font-semibold mb-2">Content not available</h3>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    This document may not have been processed yet.
-                  </p>
-                  <div className="flex gap-2">
-                    <Button 
-                      variant="outline" 
-                      onClick={() => handleReprocess(document.id, 'extract')}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setSearchQuery("")
+                        setCurrentMatchIndex(0)
+                      }}
+                      title="Clear search (Esc)"
                     >
-                      <FileText className="mr-2 h-4 w-4" />
-                      Extract Content
+                      <X className="h-4 w-4" />
                     </Button>
-                    <Button variant="outline" asChild>
-                      <a href={document.url} target="_blank" rel="noopener noreferrer">
-                        <Eye className="mr-2 h-4 w-4" />
-                        View Original PDF
-                      </a>
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </TabsContent>
-            
-            <TabsContent value="processing" className="flex-1 flex flex-col min-h-0 mt-4">
-              <div className="space-y-4">
-                <DocumentPipelineStatus 
-                  document={document}
-                  size="lg"
-                  showActions={true}
-                  showTimestamps={true}
-                  onReprocess={handleReprocess}
-                  className="border-0 p-0"
-                />
-                
-                {/* Processing History */}
-                <div className="space-y-3">
-                  <h4 className="font-medium text-sm">Processing History</h4>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between py-2 px-3 bg-muted/50 rounded">
-                      <span>Document discovered</span>
-                      <span className="text-muted-foreground">
-                        {format(new Date(document.date_found), 'MMM d, yyyy h:mm a')}
-                      </span>
-                    </div>
-                    
-                    {document.download_status === 'downloaded' && (
-                      <div className="flex justify-between py-2 px-3 bg-muted/50 rounded">
-                        <span>Document downloaded</span>
-                        <span className="text-muted-foreground">
-                          {format(new Date(document.date_found), 'MMM d, yyyy h:mm a')}
-                        </span>
-                      </div>
-                    )}
-                    
-                    {document.extraction_status === 'completed' && document.content_text && (
-                      <div className="flex justify-between py-2 px-3 bg-muted/50 rounded">
-                        <span>Content extracted ({document.content_text.length.toLocaleString()} characters)</span>
-                        <span className="text-muted-foreground">
-                          {format(new Date(document.date_found), 'MMM d, yyyy h:mm a')}
-                        </span>
-                      </div>
-                    )}
-                    
-                    {document.analysis_status === 'completed' && document.analysis_date && (
-                      <div className="flex justify-between py-2 px-3 bg-muted/50 rounded">
-                        <span>Relevance analysis completed</span>
-                        <span className="text-muted-foreground">
-                          {format(new Date(document.analysis_date), 'MMM d, yyyy h:mm a')}
-                        </span>
-                      </div>
-                    )}
-                    
-                    {(document.download_status === 'error' || 
-                      document.extraction_status === 'failed' || 
-                      document.analysis_status === 'failed') && (
-                      <div className="py-2 px-3 bg-red-50 border border-red-200 rounded">
-                        <div className="font-medium text-red-800 mb-1">Processing Error</div>
-                        <div className="text-xs text-red-600">
-                          {document.analysis_error || 'Unknown error occurred during processing'}
-                        </div>
-                      </div>
+                  </>
+                )}
+              </div>
+              
+              {/* Document Content */}
+              <div className="border rounded-md bg-background overflow-hidden" style={{ height: 'calc(90vh - 200px)' }}>
+                <div className="h-full overflow-y-auto p-6" ref={contentRef}>
+                  <div className="whitespace-pre-wrap text-base leading-relaxed text-foreground">
+                    {highlightedContent ? (
+                      <div dangerouslySetInnerHTML={{ __html: highlightedContent }} />
+                    ) : (
+                      document.content_text
                     )}
                   </div>
                 </div>
               </div>
-            </TabsContent>
-            
-            <TabsContent value="metadata" className="flex-1 flex flex-col min-h-0 mt-4">
-              <ScrollArea className="flex-1 h-full">
-                <div className="space-y-4 pr-4">
-                  {/* Document Metadata */}
-                  <div>
-                    <h4 className="font-medium text-sm mb-3">Document Information</h4>
-                    <div className="grid grid-cols-2 gap-3 text-sm">
-                      <div>
-                        <span className="text-muted-foreground">Filename:</span>
-                        <div className="font-mono text-xs mt-1 break-all">{document.filename}</div>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">File Size:</span>
-                        <div className="mt-1">
-                          {document.file_size ? `${Math.round(document.file_size / 1024)} KB` : 'Unknown'}
-                        </div>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Municipality:</span>
-                        <div className="mt-1">{municipalityName}</div>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Date Found:</span>
-                        <div className="mt-1">{format(new Date(document.date_found), 'MMM d, yyyy')}</div>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Content Hash:</span>
-                        <div className="font-mono text-xs mt-1 break-all">
-                          {document.content_hash || 'Not calculated'}
-                        </div>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Storage Path:</span>
-                        <div className="font-mono text-xs mt-1 break-all">
-                          {document.storage_path || 'Not stored locally'}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* Analysis Results */}
-                  {document.analysis_status === 'completed' && (
-                    <div>
-                      <h4 className="font-medium text-sm mb-3">Analysis Results</h4>
-                      <div className="space-y-3">
-                        <div className="grid grid-cols-2 gap-3 text-sm">
-                          <div>
-                            <span className="text-muted-foreground">ADU Relevance:</span>
-                            <div className="mt-1">
-                              <Badge className={document.is_adu_relevant ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
-                                {document.is_adu_relevant ? 'Relevant' : 'Not Relevant'}
-                              </Badge>
-                            </div>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">Confidence Score:</span>
-                            <div className="mt-1">
-                              {document.relevance_confidence ? (
-                                <Badge variant="outline">
-                                  {Math.round(document.relevance_confidence * 100)}%
-                                </Badge>
-                              ) : (
-                                'Not available'
-                              )}
-                            </div>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">Analysis Date:</span>
-                            <div className="mt-1">
-                              {document.analysis_date ? 
-                                format(new Date(document.analysis_date), 'MMM d, yyyy h:mm a') : 
-                                'Not analyzed'
-                              }
-                            </div>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">Content Length:</span>
-                            <div className="mt-1">
-                              {document.content_text ? 
-                                `${document.content_text.length.toLocaleString()} characters` : 
-                                'No content extracted'
-                              }
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Processing Actions */}
-                  <div>
-                    <h4 className="font-medium text-sm mb-3">Processing Actions</h4>
-                    <div className="flex flex-wrap gap-2">
-                      {document.download_status !== 'downloaded' && (
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => handleReprocess(document.id, 'download')}
-                        >
-                          <Download className="mr-2 h-3 w-3" />
-                          Download Document
-                        </Button>
-                      )}
-                      
-                      {document.download_status === 'downloaded' && document.extraction_status !== 'completed' && (
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => handleReprocess(document.id, 'extract')}
-                        >
-                          <FileText className="mr-2 h-3 w-3" />
-                          Extract Content
-                        </Button>
-                      )}
-                      
-                      {document.extraction_status === 'completed' && document.content_text && document.analysis_status !== 'completed' && (
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => handleReprocess(document.id, 'analyze')}
-                        >
-                          <Brain className="mr-2 h-3 w-3" />
-                          Analyze Relevance
-                        </Button>
-                      )}
-                      
-                      {/* Re-processing options */}
-                      {document.extraction_status === 'completed' && (
-                        <Button 
-                          variant="ghost" 
-                          size="sm"
-                          onClick={() => handleReprocess(document.id, 'extract')}
-                        >
-                          <FileText className="mr-2 h-3 w-3" />
-                          Re-extract
-                        </Button>
-                      )}
-                      
-                      {document.analysis_status === 'completed' && (
-                        <Button 
-                          variant="ghost" 
-                          size="sm"
-                          onClick={() => handleReprocess(document.id, 'analyze')}
-                        >
-                          <Brain className="mr-2 h-3 w-3" />
-                          Re-analyze
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </ScrollArea>
-            </TabsContent>
-          </Tabs>
+            </>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-12 text-center flex-1">
+              <FileText className="h-12 w-12 text-muted-foreground mb-4" />
+              <h3 className="font-semibold mb-2">Content not available</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                This document may not have been processed yet.
+              </p>
+              <Button variant="outline" asChild>
+                <a href={document.url} target="_blank" rel="noopener noreferrer">
+                  <Eye className="mr-2 h-4 w-4" />
+                  View Original PDF
+                </a>
+              </Button>
+            </div>
+          )}
         </div>
 
-        {/* Footer Info */}
-        <div className="flex items-center justify-between pt-4 border-t text-sm text-muted-foreground">
-          <div className="flex items-center gap-4">
-            <span className="truncate">{document.filename}</span>
-            {document.file_size && (
-              <>
-                <span>•</span>
-                <span>{Math.round(document.file_size / 1024)} KB</span>
-              </>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <DocumentPipelineStatus document={document} size="sm" />
-            {document.relevance_confidence !== null && document.relevance_confidence !== undefined && (
-              <Badge variant="outline" className="text-xs">
-                {Math.round(document.relevance_confidence * 100)}% confidence
-              </Badge>
-            )}
-          </div>
-        </div>
       </DialogContent>
     </Dialog>
   )

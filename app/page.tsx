@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { HelpTooltip, FeatureHint } from "@/components/ui/help-tooltip"
-import { TutorialOverlay, useTutorial } from "@/components/ui/tutorial-overlay"
 import { useDashboard } from "@/hooks/use-dashboard"
 import { useFavoriteDocuments } from "@/hooks/use-documents"
 import { format } from "date-fns"
@@ -16,39 +15,6 @@ export default function HomePage() {
   const { stats, recentDocuments, activeJobs, quickStats, isLoading } = useDashboard()
   const { data: favoriteDocuments, isLoading: favoritesLoading } = useFavoriteDocuments()
   
-  // Tutorial for first-time users
-  const { isOpen: showTutorial, closeTutorial, completeTutorial } = useTutorial('dashboard')
-  
-  const tutorialSteps = [
-    {
-      title: "Welcome to Bylaw Portal!",
-      description: "This dashboard gives you an overview of the system. You can monitor activity, access favorite documents, and control the document processing pipeline."
-    },
-    {
-      title: "Quick Actions",
-      description: "Use these cards to jump directly to the most commonly used features: Search, Pipeline Control, Browse Documents, and Manage Municipalities."
-    },
-    {
-      title: "Pipeline Overview",
-      description: "Monitor system-wide processing status, view active operations, and get performance insights. Click 'View Full Dashboard' for detailed pipeline management."
-    },
-    {
-      title: "Quick Start Processing",
-      description: "The Quick Start card lets you immediately launch processing operations: run full pipelines, start scraping, view active operations, or check analytics."
-    },
-    {
-      title: "Favorite Documents",
-      description: "Documents you star will appear here for quick access. Star documents by clicking the star icon in document listings or viewers."
-    },
-    {
-      title: "Recently Viewed",
-      description: "Find documents you've recently opened here. This helps you quickly return to documents you were working with."
-    },
-    {
-      title: "Need Help?",
-      description: "Look for help icons (?) throughout the app for tips, or visit the Help section in the navigation for comprehensive guides and documentation."
-    }
-  ]
   if (isLoading) {
     return (
       <div className="container mx-auto px-4 py-8">
@@ -81,23 +47,11 @@ export default function HomePage() {
     <div className="container mx-auto px-4 py-8">
       {/* Header */}
       <div className="mb-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">Dashboard</h1>
-            <p className="text-muted-foreground">
-              Monitor and manage municipal bylaw portal activities
-            </p>
-          </div>
-          <div className="flex items-center gap-6">
-            <div className="text-center">
-              <div className="text-2xl font-bold">{stats?.totalDocuments || 0}</div>
-              <div className="text-xs text-muted-foreground">Documents</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold">{stats?.totalMunicipalities || 0}</div>
-              <div className="text-xs text-muted-foreground">Municipalities</div>
-            </div>
-          </div>
+        <div>
+          <h1 className="text-3xl font-bold">Dashboard</h1>
+          <p className="text-muted-foreground">
+            Monitor and manage municipal bylaw portal activities
+          </p>
         </div>
       </div>
 
@@ -163,7 +117,7 @@ export default function HomePage() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    {doc.is_adu_relevant && (
+                    {doc.is_relevant && (
                       <Badge variant="secondary" className="text-xs">
                         Relevant
                       </Badge>
@@ -214,7 +168,7 @@ export default function HomePage() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    {doc.is_adu_relevant && (
+                    {doc.is_relevant && (
                       <Badge variant="secondary" className="text-xs">
                         Relevant
                       </Badge>
@@ -241,13 +195,6 @@ export default function HomePage() {
         </Card>
       </div>
 
-      {/* Tutorial Overlay */}
-      <TutorialOverlay
-        steps={tutorialSteps}
-        isOpen={showTutorial}
-        onClose={closeTutorial}
-        onComplete={completeTutorial}
-      />
     </div>
   )
 }

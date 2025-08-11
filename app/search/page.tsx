@@ -18,7 +18,9 @@ import {
   ChevronUp,
   Bot,
   BookOpen,
-  MoreHorizontal
+  MoreHorizontal,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -43,7 +45,7 @@ import { useMunicipalities } from "@/hooks/use-municipalities"
 import { useGlobalSearch } from "@/hooks/use-global-search"
 import { format } from "date-fns"
 import type { PdfDocument } from "@/types/database"
-import { createDocumentId } from "@/types/database"
+import { createDocumentId, createMunicipalityId } from "@/types/database"
 
 function SearchPageContent() {
   const searchParams = useSearchParams()
@@ -51,14 +53,36 @@ function SearchPageContent() {
   const initialQuery = searchParams.get('q') || ''
   
   const [showFilters, setShowFilters] = useState(false)
-  const [selectedMunicipalities, setSelectedMunicipalities] = useState<number[]>([])
   const [isRelevantOnly, setIsRelevantOnly] = useState(false)
   const [isAnalyzedOnly, setIsAnalyzedOnly] = useState(false)
   const [dateRange, setDateRange] = useState<{ from?: Date; to?: Date }>({})
   const [searchType, setSearchType] = useState<'basic' | 'fulltext'>('fulltext')
   const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set())
   const [selectedDocument, setSelectedDocument] = useState<(PdfDocument & { municipality?: { name: string } }) | null>(null)
+  
+  const handleOpenDocument = async (document: PdfDocument & { municipality?: { name: string } }) => {
+    // If document lacks content_text, fetch complete document data
+    if (!document.content_text) {
+      try {
+        const response = await fetch(`/api/documents/${document.id}`)
+        if (response.ok) {
+          const result = await response.json()
+          const completeDocument = {
+            ...document,
+            ...result.data,
+            municipality: document.municipality
+          }
+          setSelectedDocument(completeDocument)
+          return
+        }
+      } catch (error) {
+        console.error('Failed to fetch complete document data:', error)
+      }
+    }
+    setSelectedDocument(document)
+  }
   const [showGuide, setShowGuide] = useState(false)
+  const [municipalityFilterExpanded, setMunicipalityFilterExpanded] = useState(false)
   
   // Create mock filters object for UI compatibility
   const filters = {
@@ -72,11 +96,21 @@ function SearchPageContent() {
     query,
     search,
     clearSearch,
-    documents: searchDocuments,
+    documents: allDocuments,
     municipalities: searchMunicipalities,
     scrapers: searchScrapers,
     hasResults,
-    totalResults
+    totalResults,
+    totalDocuments,
+    currentPage,
+    totalPages,
+    hasNextPage,
+    hasPrevPage,
+    nextPage,
+    prevPage,
+    municipalityIds,
+    updateMunicipalityIds,
+    municipalityCounts
   } = useGlobalSearch(initialQuery)
 
   // Advanced document search - kept for potential future use but not currently used
@@ -106,30 +140,32 @@ function SearchPageContent() {
     router.push(`/search?${params.toString()}`)
   }
 
-  // Filter handling - simplified for global search (filters are not currently applied to global search)
-  const handleFilterChange = () => {
-    // Future: could apply filters to global search results
-    console.log('Filters updated:', {
-      municipalities: selectedMunicipalities,
-      isRelevantOnly,
-      isAnalyzedOnly,
-      dateRange
-    })
-  }
-
+  // No need for client-side filtering anymore - it's done on the server
+  const searchDocuments = allDocuments
+  
+  // Debug logging (can be removed later)
   useEffect(() => {
-    handleFilterChange()
-  }, [selectedMunicipalities, isRelevantOnly, isAnalyzedOnly, dateRange])
+    console.log('Current municipality filters:', municipalityIds)
+    console.log('Documents returned:', searchDocuments.length)
+    if (searchDocuments.length > 0) {
+      console.log('Sample document municipality_id:', searchDocuments[0].municipality_id)
+    }
+  }, [municipalityIds, searchDocuments])
+  
+  // Calculate filtered total results
+  const hasActiveFilters = municipalityIds.length > 0 || isRelevantOnly || isAnalyzedOnly
+  const filteredTotalResults = hasActiveFilters 
+    ? searchDocuments.length + searchMunicipalities.length
+    : totalDocuments  // Use totalDocuments (3048) instead of totalResults (includes municipalities etc.)
 
   const clearFilters = () => {
-    setSelectedMunicipalities([])
+    updateMunicipalityIds([])
     setIsRelevantOnly(false)
     setIsAnalyzedOnly(false)
     setDateRange({})
-    // updateFilters({}) - removed for global search
   }
 
-  const activeFiltersCount = (selectedMunicipalities.length > 0 ? 1 : 0) + 
+  const activeFiltersCount = (municipalityIds.length > 0 ? 1 : 0) + 
     (isRelevantOnly ? 1 : 0) + 
     (isAnalyzedOnly ? 1 : 0) + 
     (dateRange.from || dateRange.to ? 1 : 0)
@@ -146,7 +182,7 @@ function SearchPageContent() {
           </Button>
         </div>
         <p className="text-muted-foreground">
-          Search across documents, municipalities, and scrapers in one place
+          Search across bylaws, policies, and municipal documents with ADU-prioritized results
         </p>
       </div>
 
@@ -156,7 +192,7 @@ function SearchPageContent() {
           <div className="relative flex-1">
             <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search documents, municipalities, scrapers..."
+              placeholder="Search bylaws, policies, and municipalities..."
               className="pl-10"
               defaultValue={initialQuery}
               onKeyDown={(e) => {
@@ -191,52 +227,86 @@ function SearchPageContent() {
 
       {/* Municipality Filter Badges */}
       <div className="max-w-4xl mx-auto mb-6">
-        <Collapsible>
+        <Collapsible open={municipalityFilterExpanded} onOpenChange={setMunicipalityFilterExpanded}>
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium">Filter by municipality:</span>
-              {selectedMunicipalities.length > 0 && (
+              {municipalityIds.length > 0 && (
                 <Badge variant="secondary" className="text-xs">
-                  {selectedMunicipalities.length} selected
+                  {municipalityIds.length} selected
                 </Badge>
               )}
             </div>
-            <CollapsibleTrigger asChild>
-              <Button variant="outline" size="sm" className="h-8 w-8 p-0 border-2">
-                <ChevronDown className="h-4 w-4" />
-                <span className="sr-only">Toggle municipality filters</span>
-              </Button>
-            </CollapsibleTrigger>
+            <div className="flex items-center gap-2">
+              {municipalityIds.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => updateMunicipalityIds([])}
+                  className="h-8 text-muted-foreground hover:text-foreground"
+                >
+                  Clear all
+                </Button>
+              )}
+              {municipalityFilterExpanded && municipalitiesData?.data && municipalitiesData.data.length > 5 && (
+                <CollapsibleTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-8 text-muted-foreground hover:text-foreground">
+                    View less
+                  </Button>
+                </CollapsibleTrigger>
+              )}
+            </div>
           </div>
           
           {/* Collapsed view - show first row with "more" button */}
-          <div className="flex gap-2 items-center overflow-hidden">
+          <div className="flex gap-2 items-center overflow-hidden flex-wrap">
             <Button
-              variant={selectedMunicipalities.length === 0 ? "default" : "outline"}
+              variant={municipalityIds.length === 0 ? "default" : "outline"}
               size="sm"
-              onClick={() => setSelectedMunicipalities([])}
-              className="h-8 flex-shrink-0"
+              onClick={() => updateMunicipalityIds([])}
+              className="h-8"
             >
               All
-              {selectedMunicipalities.length === 0 && hasResults && (
+              {municipalityIds.length === 0 && hasResults && (
                 <Badge variant="secondary" className="ml-1 text-[10px] px-1 py-0 h-4">
-                  {totalResults}
+                  {totalDocuments}
                 </Badge>
               )}
             </Button>
             {municipalitiesData?.data
               ? [...municipalitiesData.data].sort((a, b) => {
-                const aCount = query 
-                  ? searchDocuments.filter(doc => doc.municipality?.id === a.id).length
-                  : (a.totalDocuments || 0)
-                const bCount = query 
-                  ? searchDocuments.filter(doc => doc.municipality?.id === b.id).length  
-                  : (b.totalDocuments || 0)
+                // First, prioritize selected municipalities
+                const aSelected = municipalityIds.includes(a.id)
+                const bSelected = municipalityIds.includes(b.id)
+                
+                if (aSelected && !bSelected) return -1
+                if (!aSelected && bSelected) return 1
+                
+                // If both selected or both not selected, sort by count
+                const getMunicipalityCount = (munId: number) => {
+                  if (query && municipalityCounts.length > 0) {
+                    const countData = municipalityCounts.find(mc => mc.municipality_id === munId)
+                    return countData?.document_count || 0
+                  }
+                  const municipality = municipalitiesData.data?.find(m => m.id === munId)
+                  return municipality?.totalDocuments || 0
+                }
+                
+                const aCount = getMunicipalityCount(a.id)
+                const bCount = getMunicipalityCount(b.id)
                 return bCount - aCount // Sort descending by count
               }).slice(0, 5).map((municipality) => {
-              const isSelected = selectedMunicipalities.includes(municipality.id)
-              const documentCount = searchDocuments.filter(doc => doc.municipality?.id === municipality.id).length
-              const totalDocs = municipality.totalDocuments || 0
+              const isSelected = municipalityIds.includes(municipality.id)
+              
+              // Get the correct count for this municipality
+              const getDisplayCount = () => {
+                if (query && municipalityCounts.length > 0) {
+                  const countData = municipalityCounts.find(mc => mc.municipality_id === municipality.id)
+                  return countData?.document_count || 0
+                }
+                return municipality.totalDocuments || 0
+              }
+              const documentCount = getDisplayCount()
               
               return (
                 <Button
@@ -246,38 +316,31 @@ function SearchPageContent() {
                   onClick={() => {
                     if (isSelected) {
                       // Remove from selection
-                      setSelectedMunicipalities(prev => prev.filter(id => id !== municipality.id))
+                      updateMunicipalityIds(municipalityIds.filter(id => id !== municipality.id))
                     } else {
-                      // Add to selection
-                      setSelectedMunicipalities(prev => [...prev, municipality.id])
+                      // Add to selection  
+                      updateMunicipalityIds([...municipalityIds, municipality.id])
                     }
                   }}
-                  className="h-8 flex-shrink-0"
+                  className="h-8"
                 >
                   {municipality.name}
-                  <Badge variant="secondary" className="ml-1 text-[10px] px-1 py-0 h-4">
-                    {query && documentCount > 0 ? documentCount : totalDocs}
-                  </Badge>
+                  {documentCount > 0 && (
+                    // Show real count from municipalityCounts or totalDocuments
+                    <Badge variant="secondary" className="ml-1 text-[10px] px-1 py-0 h-4">
+                      {documentCount}
+                    </Badge>
+                  )}
                 </Button>
               )
             })
             : null}
-            {municipalitiesData?.data && municipalitiesData.data.length > 5 && (
+            {!municipalityFilterExpanded && municipalitiesData?.data && municipalitiesData.data.length > 5 && (
               <CollapsibleTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8 flex-shrink-0">
+                <Button variant="outline" size="sm" className="h-8">
                   +{municipalitiesData.data.length - 5} more
                 </Button>
               </CollapsibleTrigger>
-            )}
-            {selectedMunicipalities.length > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setSelectedMunicipalities([])}
-                className="h-8 text-muted-foreground hover:text-foreground flex-shrink-0"
-              >
-                Clear all
-              </Button>
             )}
           </div>
 
@@ -285,17 +348,38 @@ function SearchPageContent() {
             <div className="flex flex-wrap gap-2 items-center pt-2">
               {municipalitiesData?.data
                 ? [...municipalitiesData.data].sort((a, b) => {
-                  const aCount = query 
-                    ? searchDocuments.filter(doc => doc.municipality?.id === a.id).length
-                    : (a.totalDocuments || 0)
-                  const bCount = query 
-                    ? searchDocuments.filter(doc => doc.municipality?.id === b.id).length  
-                    : (b.totalDocuments || 0)
+                  // First, prioritize selected municipalities
+                  const aSelected = municipalityIds.includes(a.id)
+                  const bSelected = municipalityIds.includes(b.id)
+                  
+                  if (aSelected && !bSelected) return -1
+                  if (!aSelected && bSelected) return 1
+                  
+                  // If both selected or both not selected, sort by count
+                  const getMunicipalityCount = (munId: number) => {
+                    if (query && municipalityCounts.length > 0) {
+                      const countData = municipalityCounts.find(mc => mc.municipality_id === munId)
+                      return countData?.document_count || 0
+                    }
+                    const municipality = municipalitiesData.data?.find(m => m.id === munId)
+                    return municipality?.totalDocuments || 0
+                  }
+                  
+                  const aCount = getMunicipalityCount(a.id)
+                  const bCount = getMunicipalityCount(b.id)
                   return bCount - aCount // Sort descending by count
                 }).slice(5).map((municipality) => {
-                const isSelected = selectedMunicipalities.includes(municipality.id)
-                const documentCount = searchDocuments.filter(doc => doc.municipality?.id === municipality.id).length
-                const totalDocs = municipality.totalDocuments || 0
+                const isSelected = municipalityIds.includes(municipality.id)
+                
+                // Get the correct count for this municipality
+                const getDisplayCount = () => {
+                  if (query && municipalityCounts.length > 0) {
+                    const countData = municipalityCounts.find(mc => mc.municipality_id === municipality.id)
+                    return countData?.document_count || 0
+                  }
+                  return municipality.totalDocuments || 0
+                }
+                const documentCount = getDisplayCount()
                 
                 return (
                   <Button
@@ -305,18 +389,21 @@ function SearchPageContent() {
                     onClick={() => {
                       if (isSelected) {
                         // Remove from selection
-                        setSelectedMunicipalities(prev => prev.filter(id => id !== municipality.id))
+                        updateMunicipalityIds(municipalityIds.filter(id => id !== municipality.id))
                       } else {
                         // Add to selection
-                        setSelectedMunicipalities(prev => [...prev, municipality.id])
+                        updateMunicipalityIds([...municipalityIds, municipality.id])
                       }
                     }}
                     className="h-8"
                   >
                     {municipality.name}
-                    <Badge variant="secondary" className="ml-1 text-[10px] px-1 py-0 h-4">
-                      {query && documentCount > 0 ? documentCount : totalDocs}
-                    </Badge>
+                    {documentCount > 0 && (
+                      // Show real count from municipalityCounts or totalDocuments
+                      <Badge variant="secondary" className="ml-1 text-[10px] px-1 py-0 h-4">
+                        {documentCount}
+                      </Badge>
+                    )}
                   </Button>
                 )
               })
@@ -420,7 +507,7 @@ function SearchPageContent() {
                 </h2>
                 {hasResults && (
                   <Badge variant="outline">
-                    {totalResults} results
+                    {filteredTotalResults} results
                   </Badge>
                 )}
               </div>
@@ -464,21 +551,6 @@ function SearchPageContent() {
         {hasResults && (
           <div className="space-y-6">
             
-            {/* Scrapers Results */}
-            {searchScrapers.length > 0 && (activeFilters.size === 0 || activeFilters.has('scrapers')) && (
-              <div>
-                <div className="flex items-center gap-2 mb-4">
-                  <Bot className="h-5 w-5 text-muted-foreground" />
-                  <h3 className="text-lg font-semibold">Scrapers</h3>
-                  <Badge variant="secondary">{searchScrapers.length}</Badge>
-                </div>
-                <div className="grid gap-3">
-                  {searchScrapers.map((scraper) => (
-                    <ScraperResultCard key={scraper.name} scraper={scraper} />
-                  ))}
-                </div>
-              </div>
-            )}
 
             {/* Municipalities Results */}
             {searchMunicipalities.length > 0 && (activeFilters.size === 0 || activeFilters.has('municipalities')) && (
@@ -499,25 +571,51 @@ function SearchPageContent() {
             {/* Documents Results */}
             {searchDocuments.length > 0 && (activeFilters.size === 0 || activeFilters.has('documents')) && (
               <div>
-                <div className="flex items-center gap-2 mb-4">
-                  <FileText className="h-5 w-5 text-muted-foreground" />
-                  <h3 className="text-lg font-semibold">Documents</h3>
-                  <Badge variant="secondary">{searchDocuments.length}</Badge>
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <FileText className="h-5 w-5 text-muted-foreground" />
+                    <h3 className="text-lg font-semibold">Documents</h3>
+                    <Badge variant="secondary">
+                      {totalDocuments === -1 
+                        ? `${searchDocuments.length}+` 
+                        : totalDocuments > 0 
+                          ? `${searchDocuments.length} of ${totalDocuments}` 
+                          : searchDocuments.length}
+                    </Badge>
+                  </div>
+                  {(totalPages > 1 || hasNextPage) && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-muted-foreground">
+                        Page {currentPage} {totalPages > 0 ? `of ${totalPages}` : ''}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <div className="space-y-4">
                   {searchDocuments.map((document) => {
                     // Convert search result document to PdfDocument format
-                    const pdfDocument: PdfDocument & { municipality?: { name: string } } = {
+                    const pdfDocument = {
                       ...document,
                       id: createDocumentId(document.id),
-                      municipality_id: document.municipality_id,
-                      file_size: null,
-                      content_text: null,
-                      content_analyzed: false,
-                      is_favorited: false,
-                      download_status: 'pending',
-                      extraction_status: 'pending', 
-                      analysis_status: null,
+                      municipality_id: createMunicipalityId(document.municipality_id),
+                      file_size: (document as any).file_size || null,
+                      content_text: (document as any).content_text || null,
+                      content_analyzed: (document as any).content_analyzed || false,
+                      is_favorited: (document as any).is_favorited || false,
+                      is_relevant: (document as any).is_relevant || null,
+                      relevance_score: (document as any).relevance_score || null,
+                      date_found: (document as any).date_found || new Date().toISOString(),
+                      date_published: (document as any).date_published || null,
+                      last_checked: (document as any).last_checked || new Date().toISOString(),
+                      storage_path: (document as any).storage_path || null,
+                      search_vector: null,
+                      categories: (document as any).categories || null,
+                      categorized_at: (document as any).categorized_at || null,
+                      has_aru_provisions: (document as any).has_aru_provisions || null,
+                      highlighted: (document as any).content_snippet ? {
+                        title: document.title,
+                        content: (document as any).content_snippet
+                      } : undefined,
                       municipality: document.municipality ? { name: document.municipality.name } : undefined
                     } as PdfDocument & { municipality?: { name: string } }
                     
@@ -525,11 +623,47 @@ function SearchPageContent() {
                       <SearchResultCard 
                         key={document.id} 
                         document={pdfDocument} 
-                        onOpenDocument={setSelectedDocument}
+                        onOpenDocument={handleOpenDocument}
                       />
                     )
                   })}
                 </div>
+                
+                {/* Pagination Controls */}
+                {(totalPages > 1 || hasNextPage || hasPrevPage) && (
+                  <div className="flex justify-center items-center gap-2 mt-6">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={prevPage}
+                      disabled={!hasPrevPage}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                      Previous
+                    </Button>
+                    
+                    <div className="flex items-center gap-2 px-4">
+                      <span className="text-sm">
+                        Page {currentPage} {totalPages > 0 ? `of ${totalPages}` : ''}
+                      </span>
+                      {totalDocuments !== -1 && (
+                        <span className="text-xs text-muted-foreground">
+                          ({totalDocuments} total results)
+                        </span>
+                      )}
+                    </div>
+                    
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={nextPage}
+                      disabled={!hasNextPage}
+                    >
+                      Next
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -539,8 +673,7 @@ function SearchPageContent() {
         {query && !searchLoading && (!hasResults || (
           activeFilters.size > 0 && (
             (!activeFilters.has('documents') || searchDocuments.length === 0) &&
-            (!activeFilters.has('municipalities') || searchMunicipalities.length === 0) &&
-            (!activeFilters.has('scrapers') || searchScrapers.length === 0)
+            (!activeFilters.has('municipalities') || searchMunicipalities.length === 0)
           )
         )) && (
           <Card>
@@ -553,9 +686,10 @@ function SearchPageContent() {
               <div className="text-sm text-muted-foreground">
                 <p>We search across:</p>
                 <ul className="list-disc list-inside mt-2 space-y-1">
-                  <li>Municipal documents and bylaws</li>
+                  <li>Municipal bylaws and policies</li>
+                  <li>Document content and titles</li>
                   <li>Municipality names</li>
-                  <li>Available scrapers</li>
+                  <li>ADU-relevant documents prioritized</li>
                 </ul>
               </div>
             </CardContent>
@@ -567,14 +701,14 @@ function SearchPageContent() {
           <Card>
             <CardContent className="p-12 text-center">
               <Search className="h-16 w-16 text-muted-foreground mx-auto mb-6" />
-              <h2 className="text-2xl font-semibold mb-4">Search</h2>
+              <h2 className="text-2xl font-semibold mb-4">Search Municipal Documents</h2>
               <p className="text-muted-foreground mb-6 max-w-md mx-auto">
-                Search across documents, municipalities, and scrapers. Find exactly what you're looking for.
+                Find bylaws, policies, and regulations with ADU-relevant content prioritized
               </p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-2xl mx-auto">
                 <div className="text-center">
                   <FileText className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-                  <h3 className="font-medium mb-1">Documents & Bylaws</h3>
+                  <h3 className="font-medium mb-1">Bylaws & Policies</h3>
                   <p className="text-sm text-muted-foreground">
                     Search through document content and titles
                   </p>
@@ -583,14 +717,14 @@ function SearchPageContent() {
                   <Building2 className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
                   <h3 className="font-medium mb-1">Municipalities</h3>
                   <p className="text-sm text-muted-foreground">
-                    Find cities and towns by name
+                    Browse documents by city or town
                   </p>
                 </div>
                 <div className="text-center">
-                  <Bot className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-                  <h3 className="font-medium mb-1">Scrapers</h3>
+                  <Star className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                  <h3 className="font-medium mb-1">ADU Priority</h3>
                   <p className="text-sm text-muted-foreground">
-                    Find available web scrapers
+                    ADU-relevant results ranked higher
                   </p>
                 </div>
               </div>
@@ -606,6 +740,7 @@ function SearchPageContent() {
           document={selectedDocument}
           open={!!selectedDocument}
           onOpenChange={(open) => !open && setSelectedDocument(null)}
+          searchQuery={query}
         />
       )}
 
@@ -629,42 +764,6 @@ export default function SearchPage() {
 }
 
 // Search result card components
-
-// Scraper result card component
-interface ScraperResultCardProps {
-  scraper: {
-    name: string
-    description: string
-    is_enhanced: boolean
-    supported: boolean
-  }
-}
-
-function ScraperResultCard({ scraper }: ScraperResultCardProps) {
-  return (
-    <Card className="hover:shadow-md transition-shadow">
-      <CardContent className="p-4">
-        <div className="flex items-start justify-between">
-          <div className="flex-1">
-            <h4 className="font-semibold mb-1">{scraper.name}</h4>
-            <p className="text-sm text-muted-foreground mb-2">{scraper.description}</p>
-            <div className="flex items-center gap-2">
-              {scraper.is_enhanced && (
-                <Badge variant="default" className="text-xs">Enhanced</Badge>
-              )}
-              {scraper.supported && (
-                <Badge variant="secondary" className="text-xs">Supported</Badge>
-              )}
-            </div>
-          </div>
-          <Button size="sm" variant="outline">
-            View Scraper
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
 
 // Municipality result card component
 interface MunicipalityResultCardProps {
@@ -726,7 +825,7 @@ interface SearchResultCardProps {
 }
 
 function SearchResultCard({ document, onOpenDocument }: SearchResultCardProps) {
-  const relevanceScore = document.relevance_confidence
+  const relevanceScore = document.relevance_score
   
   // Use highlighted title if available
   const displayTitle = document.highlighted?.title || document.title
@@ -755,7 +854,7 @@ function SearchResultCard({ document, onOpenDocument }: SearchResultCardProps) {
             </div>
           </div>
           <div className="flex items-center gap-2 ml-4">
-            {document.is_adu_relevant && (
+            {document.is_relevant && (
               <Badge variant="secondary" className="text-xs">
                 Relevant
               </Badge>

@@ -45,6 +45,7 @@ async function fetchDocuments(params: DocumentSearchParams = {}): Promise<Pagina
   if (params.analysisStatus) searchParams.set('analysisStatus', params.analysisStatus)
   if (params.sort) searchParams.set('sort', params.sort)
   if (params.order) searchParams.set('order', params.order)
+  if ((params as any).category) searchParams.set('category', (params as any).category)
 
   const response = await fetch(`/api/documents?${searchParams}`)
   
@@ -249,7 +250,7 @@ export function useToggleDocumentFavorite() {
 }
 
 // Document search hook
-export function useDocumentSearch(initialQuery: string = '', initialSearchType: 'basic' | 'fulltext' = 'basic') {
+export function useDocumentSearch(initialQuery: string = '', initialSearchType: 'basic' | 'fulltext' = 'basic', initialCategory: string | null = null) {
   const [searchParams, setSearchParams] = useState<DocumentSearchParams>({
     page: 1,
     limit: 50, // Higher limit for better search results
@@ -257,7 +258,8 @@ export function useDocumentSearch(initialQuery: string = '', initialSearchType: 
     searchType: initialSearchType,
     sort: 'date_found',
     order: 'desc',
-  })
+    category: initialCategory || undefined,
+  } as DocumentSearchParams)
 
   const query = useDocuments(searchParams)
 
@@ -268,7 +270,8 @@ export function useDocumentSearch(initialQuery: string = '', initialSearchType: 
       // Reset to page 1 when search parameters change (except page itself)
       page: (newParams.search !== prev.search || 
              newParams.municipalityId !== prev.municipalityId ||
-             newParams.isAduRelevant !== prev.isAduRelevant) && 
+             newParams.isAduRelevant !== prev.isAduRelevant ||
+             (newParams as any).category !== (prev as any).category) && 
              !('page' in newParams) ? 1 : (newParams.page ?? prev.page),
     }))
   }
@@ -301,6 +304,7 @@ export function useDocumentSearch(initialQuery: string = '', initialSearchType: 
     setPage: (page: number) => updateSearch({ page }),
     setLimit: (limit: number) => updateSearch({ limit }),
     setSorting: (sort: string, order: 'asc' | 'desc') => updateSearch({ sort, order }),
+    setCategory: (category: string | undefined) => updateSearch({ category }),
   }
 }
 

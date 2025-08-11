@@ -9,12 +9,7 @@
     "vercel-build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "type-check": "tsc --noEmit",
-    "scrape": "node scripts/scrape.js",
-    "extract": "node scripts/extract.js",
-    "analyze": "node scripts/analyze.js",
-    "process": "node scripts/process.js",
-    "setup-python": "./setup-python.sh"
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.1",

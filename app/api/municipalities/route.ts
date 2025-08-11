@@ -47,23 +47,10 @@ export async function GET(request: NextRequest) {
     const sortBy = url.searchParams.get('sort') || 'name'
     const sortOrder = url.searchParams.get('order') || 'asc'
 
-    // Debug logging
-    console.log('API Request params:', { page, limitParam, limit, search, status, hasDocuments, scheduledOnly, sortBy, sortOrder })
-
-
-    // Build query with row-level security
+    // Build query with row-level security - simple query first
     let query = supabase
       .from('municipalities')
-      .select(`
-        *,
-        pdf_documents(count),
-        scrape_logs(
-          id,
-          scrape_date,
-          status,
-          documents_found
-        )
-      `, { count: 'exact' })
+      .select('*', { count: 'exact' })
 
     // Apply filters
     if (search) {
@@ -92,36 +79,74 @@ export async function GET(request: NextRequest) {
     console.log('Query result:', { 
       municipalitiesCount: municipalities?.length, 
       totalCount: count, 
-      limit, 
-      appliedPagination: !!limit 
+      error: error?.message,
+      firstMunicipality: municipalities?.[0]
     })
 
     if (error) {
       console.error('Database error fetching municipalities:', error)
       return NextResponse.json(
-        { error: 'Failed to fetch municipalities' },
+        { error: 'Failed to fetch municipalities', details: error.message },
         { status: 500 }
       )
     }
 
-    // Enhance data with statistics
-    const enhancedMunicipalities = municipalities?.map(municipality => {
-      const documentCount = municipality.pdf_documents?.[0]?.count || 0
-      const lastScrape = municipality.scrape_logs?.[0] || null
-
-      return {
-        ...municipality,
-        totalDocuments: documentCount,
-        lastScrape: lastScrape ? {
-          date: lastScrape.scrape_date,
-          status: lastScrape.status,
-          documentsFound: lastScrape.documents_found
-        } : null,
-        // Remove the nested data to clean up response
-        pdf_documents: undefined,
-        scrape_logs: undefined
+    // Get document counts for all municipalities in a single query
+    const municipalityIds = municipalities.map(m => m.id)
+    let documentCounts: Record<number, number> = {}
+    
+    if (municipalityIds.length > 0) {
+      // Use RPC or raw SQL for proper aggregation to avoid row limits
+      const { data: counts, error: countError } = await supabase
+        .rpc('get_document_counts_by_municipality', {
+          municipality_ids: municipalityIds
+        })
+      
+      if (countError) {
+        console.error('Error fetching document counts via RPC:', countError.message, countError.details, countError.hint)
+        // Fallback: Get counts for each municipality using parallel queries with head: true
+        console.log('Using fallback: parallel count queries for', municipalityIds.length, 'municipalities')
+        
+        const countPromises = municipalityIds.map(async (muniId) => {
+          const { count, error } = await supabase
+            .from('pdf_documents')
+            .select('*', { count: 'exact', head: true })
+            .eq('municipality_id', muniId)
+          
+          if (error) {
+            console.error(`Error counting docs for municipality ${muniId}:`, error.message)
+            return { municipality_id: muniId, count: 0 }
+          }
+          
+          return { municipality_id: muniId, count: count || 0 }
+        })
+        
+        const countResults = await Promise.all(countPromises)
+        
+        documentCounts = countResults.reduce((acc, item) => {
+          acc[item.municipality_id] = item.count
+          return acc
+        }, {} as Record<number, number>)
+        
+        console.log('Document counts from parallel queries:', documentCounts)
+      } else if (counts) {
+        // Convert RPC result to our format
+        console.log('RPC succeeded, processing counts:', counts.length, 'results')
+        documentCounts = counts.reduce((acc: Record<number, number>, item: any) => {
+          acc[item.municipality_id] = item.document_count
+          return acc
+        }, {})
+        console.log('Document counts from RPC:', documentCounts)
+      } else {
+        console.log('No counts returned from RPC but no error either')
       }
-    }) || []
+    }
+    
+    // Enhance municipalities with document counts
+    const enhancedMunicipalities = municipalities.map(municipality => ({
+      ...municipality,
+      totalDocuments: documentCounts[municipality.id] || 0
+    }))
 
     // Filter by document count if requested
     const filteredMunicipalities = hasDocuments
