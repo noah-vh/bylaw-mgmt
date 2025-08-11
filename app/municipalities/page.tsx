@@ -73,6 +73,7 @@ export default function MunicipalitiesPage() {
     searchParams,
     setSearch,
     setPage,
+    setLimit,
     setSorting,
     resetSearch,
     refetch,
@@ -161,25 +162,19 @@ export default function MunicipalitiesPage() {
               updateSearch({ limit, page: 1 })
             }}
           >
-            <SelectTrigger className="w-24 h-10">
-              <SelectValue placeholder="Show" />
+            <SelectTrigger className="w-20 h-10">
+              <SelectValue>
+                {searchParams.limit || 100}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="10">10</SelectItem>
-              <SelectItem value="20">20</SelectItem>
-              <SelectItem value="50">50</SelectItem>
-              <SelectItem value="100">100</SelectItem>
+              <SelectItem value="10">10 per page</SelectItem>
+              <SelectItem value="20">20 per page</SelectItem>
+              <SelectItem value="50">50 per page</SelectItem>
+              <SelectItem value="100">100 per page</SelectItem>
             </SelectContent>
           </Select>
           <div className="flex gap-1">
-            <Button
-              variant={viewMode === 'table' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setViewMode('table')}
-              className="h-10 px-3"
-            >
-              <List className="h-4 w-4" />
-            </Button>
             <Button
               variant={viewMode === 'grid' ? 'default' : 'outline'}
               size="sm"
@@ -187,6 +182,14 @@ export default function MunicipalitiesPage() {
               className="h-10 px-3"
             >
               <Grid3x3 className="h-4 w-4" />
+            </Button>
+            <Button
+              variant={viewMode === 'table' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setViewMode('table')}
+              className="h-10 px-3"
+            >
+              <List className="h-4 w-4" />
             </Button>
           </div>
         </div>

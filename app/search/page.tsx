@@ -108,6 +108,8 @@ function SearchPageContent() {
     hasPrevPage,
     nextPage,
     prevPage,
+    limit,
+    updateLimit,
     municipalityIds,
     updateMunicipalityIds,
     municipalityCounts
@@ -221,6 +223,24 @@ function SearchPageContent() {
                 </Badge>
               )}
             </Button>
+            <Select
+              value={limit.toString()}
+              onValueChange={(value) => {
+                updateLimit(parseInt(value))
+              }}
+            >
+              <SelectTrigger id="search-per-page" className="h-10 w-20">
+                <SelectValue>
+                  {limit}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="10">10 per page</SelectItem>
+                <SelectItem value="25">25 per page</SelectItem>
+                <SelectItem value="50">50 per page</SelectItem>
+                <SelectItem value="100">100 per page</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
       </div>
@@ -572,16 +592,38 @@ function SearchPageContent() {
             {searchDocuments.length > 0 && (activeFilters.size === 0 || activeFilters.has('documents')) && (
               <div>
                 <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-2">
-                    <FileText className="h-5 w-5 text-muted-foreground" />
-                    <h3 className="text-lg font-semibold">Documents</h3>
-                    <Badge variant="secondary">
-                      {totalDocuments === -1 
-                        ? `${searchDocuments.length}+` 
-                        : totalDocuments > 0 
-                          ? `${searchDocuments.length} of ${totalDocuments}` 
-                          : searchDocuments.length}
-                    </Badge>
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-5 w-5 text-muted-foreground" />
+                      <h3 className="text-lg font-semibold">Documents</h3>
+                      <Badge variant="secondary">
+                        {totalDocuments === -1 
+                          ? `${searchDocuments.length}+` 
+                          : totalDocuments > 0 
+                            ? totalDocuments
+                            : searchDocuments.length}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Select
+                        value={limit.toString()}
+                        onValueChange={(value) => {
+                          updateLimit(parseInt(value))
+                        }}
+                      >
+                        <SelectTrigger id="search-per-page" className="h-8 w-20">
+                          <SelectValue>
+                            {limit}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="10">10 per page</SelectItem>
+                          <SelectItem value="25">25 per page</SelectItem>
+                          <SelectItem value="50">50 per page</SelectItem>
+                          <SelectItem value="100">100 per page</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                   {(totalPages > 1 || hasNextPage) && (
                     <div className="flex items-center gap-2">
@@ -632,39 +674,30 @@ function SearchPageContent() {
                   })}
                 </div>
                 
-                {/* Pagination Controls */}
+                {/* Pagination - Municipality Style */}
                 {(totalPages > 1 || hasNextPage || hasPrevPage) && (
-                  <div className="flex justify-center items-center gap-2 mt-6">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={prevPage}
-                      disabled={!hasPrevPage}
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                      Previous
-                    </Button>
-                    
-                    <div className="flex items-center gap-2 px-4">
-                      <span className="text-sm">
-                        Page {currentPage} {totalPages > 0 ? `of ${totalPages}` : ''}
-                      </span>
-                      {totalDocuments !== -1 && (
-                        <span className="text-xs text-muted-foreground">
-                          ({totalDocuments} total results)
-                        </span>
-                      )}
+                  <div className="flex items-center justify-between mt-6">
+                    <div className="text-sm text-muted-foreground">
+                      Showing {((currentPage - 1) * limit) + 1} to{' '}
+                      {Math.min(currentPage * limit, totalDocuments > 0 ? totalDocuments : searchDocuments.length)} of{' '}
+                      {totalDocuments > 0 ? totalDocuments : `${searchDocuments.length}+`} documents
                     </div>
-                    
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={nextPage}
-                      disabled={!hasNextPage}
-                    >
-                      Next
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        disabled={!hasPrevPage}
+                        onClick={prevPage}
+                      >
+                        Previous
+                      </Button>
+                      <Button
+                        variant="outline"
+                        disabled={!hasNextPage}
+                        onClick={nextPage}
+                      >
+                        Next
+                      </Button>
+                    </div>
                   </div>
                 )}
               </div>

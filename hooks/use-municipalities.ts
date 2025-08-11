@@ -284,6 +284,7 @@ export function useMunicipalitySearch() {
     setSearch: (search: string) => updateSearch({ search }),
     setStatus: (status: MunicipalitySearchParams['status']) => updateSearch({ status }),
     setPage: (page: number) => updateSearch({ page }),
+    setLimit: (limit: number) => updateSearch({ limit }),
     setSorting: (sort: string, order: 'asc' | 'desc') => updateSearch({ sort, order }),
   }
 }

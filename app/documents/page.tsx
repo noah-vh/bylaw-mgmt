@@ -411,15 +411,28 @@ function DocumentsPageContent() {
               </DropdownMenuContent>
             </DropdownMenu>
 
+            {/* Page Size Selector */}
+            <Select
+              value={data?.pagination?.limit?.toString() || "100"}
+              onValueChange={(value) => {
+                setPage(1) // Reset to first page when changing limit
+                setLimit(parseInt(value))
+              }}
+            >
+              <SelectTrigger className="h-10 w-20">
+                <SelectValue>
+                  {data?.pagination?.limit || 100}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="10">10 per page</SelectItem>
+                <SelectItem value="20">20 per page</SelectItem>
+                <SelectItem value="50">50 per page</SelectItem>
+                <SelectItem value="100">100 per page</SelectItem>
+              </SelectContent>
+            </Select>
+            
             <div className="flex gap-1">
-              <Button
-                variant={viewMode === 'table' ? 'default' : 'outline'}
-                size="icon"
-                onClick={() => setViewMode('table')}
-                className="h-10 w-10"
-              >
-                <List className="h-4 w-4" />
-              </Button>
               <Button
                 variant={viewMode === 'grid' ? 'default' : 'outline'}
                 size="icon"
@@ -427,6 +440,14 @@ function DocumentsPageContent() {
                 className="h-10 w-10"
               >
                 <Grid3x3 className="h-4 w-4" />
+              </Button>
+              <Button
+                variant={viewMode === 'table' ? 'default' : 'outline'}
+                size="icon"
+                onClick={() => setViewMode('table')}
+                className="h-10 w-10"
+              >
+                <List className="h-4 w-4" />
               </Button>
             </div>
           </div>
@@ -625,34 +646,10 @@ function DocumentsPageContent() {
       {/* Pagination */}
       {data?.pagination && (
         <div className="flex items-center justify-between mt-6">
-          <div className="flex items-center gap-4">
-            <div className="text-sm text-muted-foreground">
-              Showing {((data.pagination.page - 1) * data.pagination.limit) + 1} to{' '}
-              {Math.min(data.pagination.page * data.pagination.limit, data.pagination.total)} of{' '}
-              {data.pagination.total} documents
-            </div>
-            <div className="flex items-center gap-2">
-              <Label htmlFor="per-page" className="text-sm text-muted-foreground">
-                Per page:
-              </Label>
-              <Select
-                value={data.pagination.limit.toString()}
-                onValueChange={(value) => {
-                  setPage(1) // Reset to first page when changing limit
-                  setLimit(parseInt(value))
-                }}
-              >
-                <SelectTrigger id="per-page" className="h-8 w-[70px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="10">10</SelectItem>
-                  <SelectItem value="20">20</SelectItem>
-                  <SelectItem value="50">50</SelectItem>
-                  <SelectItem value="100">100</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          <div className="text-sm text-muted-foreground">
+            Showing {((data.pagination.page - 1) * data.pagination.limit) + 1} to{' '}
+            {Math.min(data.pagination.page * data.pagination.limit, data.pagination.total)} of{' '}
+            {data.pagination.total} documents
           </div>
           <div className="flex gap-2">
             <Button
