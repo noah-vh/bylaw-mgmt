@@ -4,38 +4,34 @@ import { supabase } from '../../../../lib/supabase'
 // GET /api/dashboard/quick-stats - Get quick overview statistics
 export async function GET(request: NextRequest) {
   try {
-    // Fetch counts in parallel
-    const [
-      municipalitiesTotal,
-      municipalitiesActive,
-      municipalitiesPending,
-      documentsTotal,
-      documentsAnalyzed,
-      documentsRelevant
-    ] = await Promise.all([
-      // Municipality counts
-      supabase.from('municipalities').select('*', { count: 'exact', head: true }),
-      supabase.from('municipalities').select('*', { count: 'exact', head: true }).eq('status', 'active'),
-      supabase.from('municipalities').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
+    // Use more efficient single queries with aggregation
+    const [municipalitiesResult, documentsResult] = await Promise.all([
+      // Get all municipality data in one query and aggregate in memory
+      supabase.from('municipalities').select('status'),
       
-      // Document counts
-      supabase.from('pdf_documents').select('*', { count: 'exact', head: true }),
-      supabase.from('pdf_documents').select('*', { count: 'exact', head: true }).eq('content_analyzed', true),
-      supabase.from('pdf_documents').select('*', { count: 'exact', head: true }).eq('is_adu_relevant', true)
+      // Get all document flags in one query and aggregate in memory
+      supabase.from('pdf_documents').select('content_analyzed, is_adu_relevant')
     ])
 
+    // Aggregate municipality stats
+    const municipalities = municipalitiesResult.data || []
+    const municipalityStats = {
+      total: municipalities.length,
+      active: municipalities.filter(m => m.status === 'active').length,
+      pending: municipalities.filter(m => m.status === 'pending').length
+    }
+
+    // Aggregate document stats
+    const documents = documentsResult.data || []
+    const documentStats = {
+      total: documents.length,
+      analyzed: documents.filter(d => d.content_analyzed).length,
+      relevant: documents.filter(d => d.is_adu_relevant).length
+    }
 
     return NextResponse.json({
-      municipalities: {
-        total: municipalitiesTotal.count || 0,
-        active: municipalitiesActive.count || 0,
-        pending: municipalitiesPending.count || 0
-      },
-      documents: {
-        total: documentsTotal.count || 0,
-        analyzed: documentsAnalyzed.count || 0,
-        relevant: documentsRelevant.count || 0
-      }
+      municipalities: municipalityStats,
+      documents: documentStats
     })
   } catch (error) {
     console.error('Error fetching quick stats:', error)
