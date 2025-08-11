@@ -514,7 +514,7 @@ function DocumentsPageContent() {
                     }
                   }}
                   className="h-8"
-                  disabled={selectedCategory && (!docCount || docCount === 0)}
+                  disabled={!!(selectedCategory && (!docCount || docCount === 0))}
                 >
                   {municipality.name}
                   {totalDocs > 0 && (
@@ -570,7 +570,7 @@ function DocumentsPageContent() {
                       }
                     }}
                     className="h-8"
-                    disabled={selectedCategory && (!docCount || docCount === 0)}
+                    disabled={!!(selectedCategory && (!docCount || docCount === 0))}
                   >
                     {municipality.name}
                     {totalDocs > 0 && (

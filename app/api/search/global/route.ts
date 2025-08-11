@@ -119,7 +119,7 @@ export async function GET(request: NextRequest) {
             })
             
             // Get municipality names
-            const uniqueMunicipalityIds = [...new Set(optimizedData.map(doc => doc.municipality_id).filter(Boolean))]
+            const uniqueMunicipalityIds = [...new Set(optimizedData.map((doc: any) => doc.municipality_id).filter(Boolean))]
             let municipalityMap: Record<number, string> = {}
             
             if (uniqueMunicipalityIds.length > 0) {
@@ -135,7 +135,7 @@ export async function GET(request: NextRequest) {
             }
             
             // Generate content snippets for optimized results by fetching content_text
-            const docIds = optimizedData.map(doc => doc.id)
+            const docIds = optimizedData.map((doc: any) => doc.id)
             let contentSnippets: Record<number, string> = {}
             
             if (docIds.length > 0) {
@@ -191,7 +191,7 @@ export async function GET(request: NextRequest) {
               }
             }
 
-            results.documents = optimizedData.map(doc => ({
+            results.documents = optimizedData.map((doc: any) => ({
               ...doc,
               is_relevant: doc.is_relevant,
               adu_category_score: doc.categories?.['ADU/ARU Regulations'] || 0,

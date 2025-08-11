@@ -194,7 +194,7 @@ export function useGlobalSearch(
 // Simple search hook for quick searches (like in a navbar)
 export function useQuickSearch(query: string, enabled = true) {
   return useQuery({
-    queryKey: globalSearchKeys.search(query, ['documents', 'municipalities'], 5),
+    queryKey: globalSearchKeys.search(query, ['documents', 'municipalities'], 5, 0, []),
     queryFn: () => fetchGlobalSearch(query, ['documents', 'municipalities'], 5),
     enabled: enabled && query.length >= 2,
     staleTime: 1000 * 30

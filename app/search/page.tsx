@@ -612,6 +612,9 @@ function SearchPageContent() {
                       categories: (document as any).categories || null,
                       categorized_at: (document as any).categorized_at || null,
                       has_aru_provisions: (document as any).has_aru_provisions || null,
+                      analysis_date: (document as any).analysis_date || null,
+                      analysis_error: (document as any).analysis_error || null,
+                      content_hash: (document as any).content_hash || null,
                       highlighted: (document as any).content_snippet ? {
                         title: document.title,
                         content: (document as any).content_snippet
