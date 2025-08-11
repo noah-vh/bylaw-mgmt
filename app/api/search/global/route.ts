@@ -104,19 +104,35 @@ export async function GET(request: NextRequest) {
           
           if (!optimizedError && optimizedData) {
             console.log('Using optimized search, returned', optimizedData.length, 'documents')
+            console.log('Search query:', query)
+            console.log('Limit:', limit)
+            console.log('Offset:', offset)
+            console.log('Municipality filters:', municipalityIds)
+            if (optimizedData.length > 0) {
+              console.log('First result:', optimizedData[0].title)
+            }
           } else {
             console.log('Optimized search failed:', optimizedError?.message || 'No data returned')
+            console.log('Query was:', query)
           }
           
           if (!optimizedError && optimizedData) {
             // Process optimized results
             const hasMore = optimizedData.length > 0 && optimizedData[0].has_more
             
-            // Get total count using faster count function
-            const { data: totalCount } = await supabase.rpc('get_search_count_fast', {
-              search_query: query,
-              filter_municipality_ids: municipalityIds && municipalityIds.length > 0 ? municipalityIds : null
+            // Get total count using the same approach as municipality counts
+            const { data: municipalityCounts, error: countError } = await supabase.rpc('get_municipality_counts_for_search', {
+              search_query: query
             })
+            
+            let totalCount = null
+            if (!countError && municipalityCounts) {
+              // Sum up all municipality counts to get total
+              totalCount = municipalityCounts.reduce((sum: number, m: any) => sum + (m.document_count || 0), 0)
+              console.log('Total count calculated from municipality counts:', totalCount)
+            } else {
+              console.log('Municipality counts failed:', countError?.message)
+            }
             
             // Get municipality names
             const uniqueMunicipalityIds = [...new Set(optimizedData.map((doc: any) => doc.municipality_id).filter(Boolean))]
@@ -203,19 +219,18 @@ export async function GET(request: NextRequest) {
             }))
             
             results.pagination.hasMore = hasMore
-            results.pagination.documentsTotal = totalCount || -1
-            return // Exit early if optimized search worked
-          }
+            results.pagination.documentsTotal = totalCount || (hasMore ? -1 : offset + optimizedData.length)
+            console.log('Optimized search successful, processed', results.documents.length, 'documents')
+          } else {
+            // Fallback to simpler search if optimized not available
+            console.log('Optimized search not available, using fallback')
           
-          // Fallback to simpler search if optimized not available
-          console.log('Optimized search not available, using fallback')
-          
-          // Build the query - ONLY search title and filename to avoid timeout
+            // Build the query - search title, filename, and use basic text search
           let searchQuery = supabase
-            .from('pdf_documents')
+            .from('pdf_documents')  
             .select('*')
           
-          // Search only in title and filename for now (content search times out)
+          // Fallback: search title and filename only (content search times out)
           searchQuery = searchQuery.or(`title.ilike.%${query}%,filename.ilike.%${query}%`)
           
           // Add municipality filter if provided
@@ -313,6 +328,7 @@ export async function GET(request: NextRequest) {
               // Estimate total pages (we can't know exact count without timing out)
               results.pagination.documentsTotal = hasMore ? -1 : offset + documentsToProcess.length
             }
+          }
         } catch (error) {
           console.error('Document search error:', error)
         }

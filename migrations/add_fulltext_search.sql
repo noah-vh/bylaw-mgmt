@@ -62,14 +62,44 @@ RETURNS TABLE (
   categories jsonb,
   has_more boolean
 ) LANGUAGE sql STABLE AS $$
-  WITH results AS (
+  WITH search_terms AS (
+    -- Create multiple search strategies for better matching
+    SELECT 
+      search_query as original_query,
+      -- For exact phrase matching (highest priority)
+      websearch_to_tsquery('english', search_query) as exact_query,
+      -- For individual words (fallback for partial matches)
+      plainto_tsquery('english', search_query) as words_query,
+      -- For prefix matching (handles partial words like "setback" vs "set back")
+      regexp_replace(trim(search_query), '\s+', ':* & ', 'g') || ':*' as prefix_pattern
+  ),
+  results AS (
     SELECT 
       pd.*,
-      ts_rank(pd.search_vector, websearch_to_tsquery('english', search_query)) as rank
-    FROM pdf_documents pd
+      CASE 
+        -- Highest rank for exact phrase matches
+        WHEN pd.search_vector @@ (SELECT exact_query FROM search_terms) 
+          THEN ts_rank(pd.search_vector, (SELECT exact_query FROM search_terms)) + 1.0
+        -- Medium rank for all words present
+        WHEN pd.search_vector @@ (SELECT words_query FROM search_terms)
+          THEN ts_rank(pd.search_vector, (SELECT words_query FROM search_terms)) + 0.5
+        -- Lower rank for ILIKE matches on title/filename (fallback)
+        WHEN pd.title ILIKE '%' || search_query || '%' OR pd.filename ILIKE '%' || search_query || '%'
+          THEN 0.1
+        ELSE 0
+      END as rank
+    FROM pdf_documents pd, search_terms
     WHERE 
-      pd.search_vector @@ websearch_to_tsquery('english', search_query)
+      (
+        -- Full-text search with multiple strategies
+        pd.search_vector @@ (SELECT exact_query FROM search_terms) OR
+        pd.search_vector @@ (SELECT words_query FROM search_terms) OR
+        -- Fallback to ILIKE for partial matches
+        pd.title ILIKE '%' || search_query || '%' OR 
+        pd.filename ILIKE '%' || search_query || '%'
+      )
       AND (filter_municipality_ids IS NULL OR pd.municipality_id = ANY(filter_municipality_ids))
+      AND rank > 0
     ORDER BY 
       rank DESC,
       pd.is_relevant DESC NULLS LAST,

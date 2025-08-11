@@ -76,6 +76,7 @@ async function fetchGlobalSearch(
   municipalityIds.forEach(id => searchParams.append('municipalityIds[]', id.toString()))
   
   // Debug logging (can be removed later)
+  console.log('=== FETCH GLOBAL SEARCH ===')
   console.log('Search params:', {
     query,
     municipalityIds,
@@ -90,7 +91,17 @@ async function fetchGlobalSearch(
     throw new Error(`Failed to search: ${response.statusText}`)
   }
   
-  return await response.json()
+  const result = await response.json()
+  console.log('API Response:', {
+    documentsCount: result.results?.documents?.length || 0,
+    totalDocuments: result.meta?.pagination?.documentsTotal || 0,
+    hasMore: result.meta?.pagination?.hasMore || false,
+    municipalitiesCount: result.results?.municipalities?.length || 0,
+    totalResults: result.meta?.total || 0
+  })
+  console.log('=== END FETCH GLOBAL SEARCH ===')
+  
+  return result
 }
 
 // Query key factory for global search
