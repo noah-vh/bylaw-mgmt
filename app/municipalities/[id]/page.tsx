@@ -240,8 +240,8 @@ export default function MunicipalityDetailPage() {
     const matchesFilter = documentsFilter === "all" || 
       (documentsFilter === "relevant" && doc.is_relevant) ||
       (documentsFilter === "not-relevant" && !doc.is_relevant) ||
-      (documentsFilter === "analyzed" && doc.content_analyzed) ||
-      (documentsFilter === "not-analyzed" && !doc.content_analyzed)
+      (documentsFilter === "analyzed" && doc.content_text) ||
+      (documentsFilter === "not-analyzed" && !doc.content_text)
     
     return matchesSearch && matchesFilter
   })
@@ -368,13 +368,13 @@ export default function MunicipalityDetailPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        {document.content_analyzed ? (
+                        {document.content_text ? (
                           <Badge variant="default" className="text-xs">
-                            Analyzed
+                            Extracted
                           </Badge>
                         ) : (
                           <Badge variant="outline" className="text-xs">
-                            Not Analyzed
+                            Pending
                           </Badge>
                         )}
                       </TableCell>
@@ -410,6 +410,10 @@ export default function MunicipalityDetailPage() {
                             <DropdownMenuItem>
                               <Download className="mr-2 h-4 w-4" />
                               Download
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleToggleFavorite(document.id)}>
+                              <Star className={`mr-2 h-4 w-4 ${document.is_favorited ? 'fill-current text-yellow-500' : ''}`} />
+                              {document.is_favorited ? 'Remove from Favorites' : 'Add to Favorites'}
                             </DropdownMenuItem>
                             <DropdownMenuItem>
                               <Edit className="mr-2 h-4 w-4" />

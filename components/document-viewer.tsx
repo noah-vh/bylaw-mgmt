@@ -50,20 +50,12 @@ interface DocumentViewerProps {
 function DocumentStageStatusBadge({ document }: { document: PdfDocument }) {
   // Simple status determination based on document properties
   const getStatus = () => {
-    if (document.content_analyzed && document.content_text) {
-      return {
-        label: 'Processed',
-        className: 'bg-green-100 text-green-800',
-        icon: CheckCircle2,
-        tooltip: 'Document has been fully analyzed for ADU relevance'
-      }
-    }
-    if (document.content_text && !document.content_analyzed) {
+    if (document.content_text) {
       return {
         label: 'Extracted',
         className: 'bg-blue-100 text-blue-800',
         icon: FileText,
-        tooltip: 'PDF content has been extracted and is ready for analysis'
+        tooltip: 'PDF content has been extracted'
       }
     }
     if (document.storage_path) {
@@ -305,19 +297,9 @@ export function DocumentViewer({
                   <>
                     <span>•</span>
                     <Badge variant="secondary" className="text-xs">
-                      ADU Relevant
+                      ADU Related
                     </Badge>
                   </>
-                )}
-                {document.content_analyzed && (
-                  <Badge variant="default" className="text-xs">
-                    Analyzed
-                  </Badge>
-                )}
-                {document.relevance_score !== null && document.relevance_score !== undefined && (
-                  <Badge variant="outline" className="text-xs">
-                    {Math.round(document.relevance_score * 100)}% confidence
-                  </Badge>
                 )}
               </div>
             </div>
@@ -438,18 +420,46 @@ export function DocumentViewer({
                 )}
               </div>
               
-              {/* Document Content */}
-              <div className="border rounded-md bg-background overflow-hidden" style={{ height: 'calc(90vh - 200px)' }}>
-                <div className="h-full overflow-y-auto p-6" ref={contentRef}>
-                  <div className="whitespace-pre-wrap text-base leading-relaxed text-foreground">
-                    {highlightedContent ? (
-                      <div dangerouslySetInnerHTML={{ __html: highlightedContent }} />
-                    ) : (
-                      document.content_text
-                    )}
+              {/* Tabs for Content and PDF Preview */}
+              <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
+                <TabsList className="grid w-full grid-cols-2 mb-4">
+                  <TabsTrigger value="content">Document Content</TabsTrigger>
+                  <TabsTrigger value="pdf">PDF Preview</TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="content" className="flex-1 mt-0">
+                  <div className="border rounded-md bg-background overflow-hidden" style={{ height: 'calc(90vh - 260px)' }}>
+                    <div className="h-full overflow-y-auto p-6" ref={contentRef}>
+                      <div className="whitespace-pre-wrap text-base leading-relaxed text-foreground">
+                        {highlightedContent ? (
+                          <div dangerouslySetInnerHTML={{ __html: highlightedContent }} />
+                        ) : (
+                          document.content_text
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
+                </TabsContent>
+                
+                <TabsContent value="pdf" className="flex-1 mt-0">
+                  <div className="border rounded-md bg-background overflow-hidden flex items-center justify-center" style={{ height: 'calc(90vh - 260px)' }}>
+                    <div className="flex flex-col items-center justify-center p-8 text-center max-w-md">
+                      <FileText className="h-16 w-16 text-muted-foreground mb-4" />
+                      <h3 className="text-lg font-semibold mb-2">PDF Preview Not Available</h3>
+                      <p className="text-sm text-muted-foreground mb-4">
+                        Due to security restrictions, PDFs cannot be previewed inline. 
+                        Click below to view the original document.
+                      </p>
+                      <Button asChild size="lg">
+                        <a href={document.url} target="_blank" rel="noopener noreferrer">
+                          <ExternalLink className="mr-2 h-4 w-4" />
+                          View Original PDF
+                        </a>
+                      </Button>
+                    </div>
+                  </div>
+                </TabsContent>
+              </Tabs>
             </>
           ) : (
             <div className="flex flex-col items-center justify-center py-12 text-center flex-1">

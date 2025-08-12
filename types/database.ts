@@ -212,7 +212,6 @@ export interface Database {
           date_found: string
           date_published: string | null
           last_checked: string
-          content_analyzed: boolean
           content_text: string | null
           relevance_score: number | null
           analysis_date: string | null
@@ -236,7 +235,6 @@ export interface Database {
           date_found?: string
           date_published?: string | null
           last_checked?: string
-          content_analyzed?: boolean
           content_text?: string | null
           relevance_score?: number | null
           analysis_date?: string | null
@@ -260,7 +258,6 @@ export interface Database {
           date_found?: string
           date_published?: string | null
           last_checked?: string
-          content_analyzed?: boolean
           content_text?: string | null
           relevance_score?: number | null
           analysis_date?: string | null

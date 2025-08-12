@@ -118,7 +118,6 @@ function DocumentsPageContent() {
   const [showUploadDialog, setShowUploadDialog] = useState(false)
   const [selectedMunicipalities, setSelectedMunicipalities] = useState<number[]>([])
   const [municipalityFilterExpanded, setMunicipalityFilterExpanded] = useState(false)
-  const [hasContentFilter, setHasContentFilter] = useState<boolean | undefined>(undefined)
   const [selectedCategory, setSelectedCategory] = useState<string | null>(categoryFromUrl)
   
   const {
@@ -330,9 +329,9 @@ function DocumentsPageContent() {
               <DropdownMenuTrigger className="inline-flex items-center justify-center h-10 px-4 py-2 text-sm font-medium rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50">
                 <Filter className="mr-2 h-4 w-4" />
                 Filters
-                {(searchParams.isAduRelevant || searchParams.isAnalyzed || searchParams.isFavorited || hasContentFilter) && (
+                {(searchParams.isAduRelevant || searchParams.isAnalyzed || searchParams.isFavorited) && (
                   <Badge variant="secondary" className="ml-2 h-5 px-1">
-                    {[searchParams.isAduRelevant, searchParams.isAnalyzed, searchParams.isFavorited, hasContentFilter].filter(Boolean).length}
+                    {[searchParams.isAduRelevant, searchParams.isAnalyzed, searchParams.isFavorited].filter(Boolean).length}
                   </Badge>
                 )}
               </DropdownMenuTrigger>
@@ -350,12 +349,6 @@ function DocumentsPageContent() {
                   checked={searchParams.isAnalyzed === true}
                   onCheckedChange={(checked) => setAnalyzedFilter(checked || undefined)}
                 >
-                  Extracted Only
-                </DropdownMenuCheckboxItem>
-                <DropdownMenuCheckboxItem
-                  checked={hasContentFilter === true}
-                  onCheckedChange={(checked) => setHasContentFilter(checked ? true : undefined)}
-                >
                   Content Extracted
                 </DropdownMenuCheckboxItem>
                 <DropdownMenuCheckboxItem
@@ -365,7 +358,7 @@ function DocumentsPageContent() {
                   Favorites Only
                 </DropdownMenuCheckboxItem>
                 
-                {(searchParams.isAduRelevant || searchParams.isAnalyzed || searchParams.isFavorited || hasContentFilter) && (
+                {(searchParams.isAduRelevant || searchParams.isAnalyzed || searchParams.isFavorited) && (
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
@@ -373,7 +366,6 @@ function DocumentsPageContent() {
                         setRelevanceFilter(undefined)
                         setAnalyzedFilter(undefined)
                         setFavoritesFilter(undefined)
-                        setHasContentFilter(undefined)
                       }}
                       className="text-sm text-muted-foreground cursor-pointer"
                     >
@@ -608,14 +600,7 @@ function DocumentsPageContent() {
       {viewMode === 'table' ? (
         <DocumentTableView
           key={`table-${searchParams.municipalityId || 'all'}`}
-          data={hasContentFilter ? {
-            ...data,
-            data: data?.data?.filter((doc: PdfDocument) => !!doc.content_text),
-            pagination: data?.pagination ? {
-              ...data.pagination,
-              total: data.data?.filter((doc: PdfDocument) => !!doc.content_text).length || 0
-            } : undefined
-          } : data}
+          data={data}
           isLoading={isLoading}
           searchParams={searchParams}
           setSorting={setSorting}
@@ -625,14 +610,7 @@ function DocumentsPageContent() {
       ) : (
         <DocumentGridView
           key={`grid-${searchParams.municipalityId || 'all'}`}
-          data={hasContentFilter ? {
-            ...data,
-            data: data?.data?.filter((doc: PdfDocument) => !!doc.content_text),
-            pagination: data?.pagination ? {
-              ...data.pagination,
-              total: data.data?.filter((doc: PdfDocument) => !!doc.content_text).length || 0
-            } : undefined
-          } : data}
+          data={data}
           isLoading={isLoading}
           onToggleFavorite={handleToggleFavorite}
           onOpenDocument={handleOpenDocument}
@@ -757,10 +735,10 @@ function DocumentTableView({
                   )}
                 </button>
               </TableHead>
-              <TableHead>
+              <TableHead className="w-40 text-right">
                 <button
                   onClick={() => setSorting('municipality_name', searchParams.sort === 'municipality_name' && searchParams.order === 'asc' ? 'desc' : 'asc')}
-                  className="inline-flex items-center gap-1 font-medium hover:text-foreground transition-colors"
+                  className="inline-flex items-center gap-1 font-medium hover:text-foreground transition-colors whitespace-nowrap"
                 >
                   Municipality
                   {searchParams.sort === 'municipality_name' && (
@@ -770,10 +748,10 @@ function DocumentTableView({
                   )}
                 </button>
               </TableHead>
-              <TableHead>
+              <TableHead className="w-36 text-right">
                 <button
                   onClick={() => setSorting('last_checked', searchParams.sort === 'last_checked' && searchParams.order === 'asc' ? 'desc' : 'asc')}
-                  className="inline-flex items-center gap-1 font-medium hover:text-foreground transition-colors"
+                  className="inline-flex items-center gap-1 font-medium hover:text-foreground transition-colors whitespace-nowrap"
                 >
                   Last Updated
                   {searchParams.sort === 'last_checked' && (
@@ -783,9 +761,9 @@ function DocumentTableView({
                   )}
                 </button>
               </TableHead>
-              <TableHead>Date Published</TableHead>
-              <TableHead>Document Content</TableHead>
-              <TableHead>Actions</TableHead>
+              <TableHead className="w-36 text-right whitespace-nowrap">Date Published</TableHead>
+              <TableHead className="w-40 text-right whitespace-nowrap">Document Content</TableHead>
+              <TableHead className="w-16 text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -826,23 +804,23 @@ function DocumentTableView({
                     )}
                   </div>
                 </TableCell>
-                <TableCell>
+                <TableCell className="text-right">
                   <div className="text-sm">{document.municipality_name || 'Unknown'}</div>
                 </TableCell>
-                <TableCell>
-                  <div className="text-sm">
+                <TableCell className="text-right">
+                  <div className="text-sm whitespace-nowrap">
                     {document.last_checked ? format(new Date(document.last_checked), 'MMM d, yyyy') : 'Never'}
                   </div>
                 </TableCell>
-                <TableCell>
-                  <div className="text-sm text-muted-foreground">
+                <TableCell className="text-right">
+                  <div className="text-sm text-muted-foreground whitespace-nowrap">
                     {(document as any).date_published ? format(new Date((document as any).date_published), 'MMM d, yyyy') : 'N/A'}
                   </div>
                 </TableCell>
-                <TableCell>
+                <TableCell className="text-right">
                   <DocumentStatus document={document} />
                 </TableCell>
-                <TableCell className="relative">
+                <TableCell className="relative text-right">
                   <div 
                     className="inline-block"
                     onMouseEnter={() => handleMouseEnter(document.id)}

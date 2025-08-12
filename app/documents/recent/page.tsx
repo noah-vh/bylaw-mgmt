@@ -83,7 +83,7 @@ export default function RecentDocumentsPage() {
     const stats = {
       total: recentDocuments.length,
       relevant: recentDocuments.filter(doc => doc.is_relevant).length,
-      analyzed: recentDocuments.filter(doc => doc.content_analyzed).length,
+      analyzed: recentDocuments.filter(doc => doc.content_text).length,
       municipalities: new Set(recentDocuments.map(doc => doc.municipality_id)).size
     }
     return stats
@@ -299,11 +299,11 @@ export default function RecentDocumentsPage() {
                           {document.is_relevant && (
                             <Badge variant="default">Relevant</Badge>
                           )}
-                          {document.content_analyzed && (
-                            <Badge variant="secondary">Analyzed</Badge>
+                          {document.content_text && (
+                            <Badge variant="secondary">Extracted</Badge>
                           )}
-                          {!document.content_analyzed && (
-                            <Badge variant="outline">Pending Analysis</Badge>
+                          {!document.content_text && (
+                            <Badge variant="outline">Pending</Badge>
                           )}
                         </div>
 

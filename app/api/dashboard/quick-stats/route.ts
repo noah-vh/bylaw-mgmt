@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
       supabase.from('municipalities').select('status'),
       
       // Get all document flags in one query and aggregate in memory
-      supabase.from('pdf_documents').select('content_analyzed, is_adu_relevant')
+      supabase.from('pdf_documents').select('content_text, is_adu_relevant')
     ])
 
     // Aggregate municipality stats
@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     const documents = documentsResult.data || []
     const documentStats = {
       total: documents.length,
-      analyzed: documents.filter(d => d.content_analyzed).length,
+      analyzed: documents.filter(d => d.content_text).length,
       relevant: documents.filter(d => d.is_adu_relevant).length
     }
 

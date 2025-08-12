@@ -94,9 +94,7 @@ export default function HomePage() {
                         Relevant
                       </Badge>
                     )}
-                    <Badge variant="outline" className="text-xs">
-                      ⭐
-                    </Badge>
+                    <Star className="h-4 w-4 fill-current text-yellow-500" />
                   </div>
                 </div>
               ))}
@@ -146,9 +144,7 @@ export default function HomePage() {
                       </Badge>
                     )}
                     {doc.is_favorited && (
-                      <Badge variant="outline" className="text-xs">
-                        ⭐
-                      </Badge>
+                      <Star className="h-4 w-4 fill-current text-yellow-500" />
                     )}
                   </div>
                 </div>

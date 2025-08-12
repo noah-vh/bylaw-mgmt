@@ -109,12 +109,8 @@ export async function POST(request: NextRequest) {
       date_found: new Date().toISOString(),
       date_published: validatedData.date_published || null,
       last_checked: new Date().toISOString(),
-      content_analyzed: false,
       storage_path: storagePath,
-      download_status: 'downloaded' as const,
       is_favorited: false,
-      extraction_status: 'pending' as const,
-      analysis_status: 'pending' as const,
     }
 
     const { data: document, error: dbError } = await supabase

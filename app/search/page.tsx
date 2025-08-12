@@ -81,6 +81,27 @@ function SearchPageContent() {
     }
     setSelectedDocument(document)
   }
+
+  const handleToggleFavorite = async (documentId: any) => {
+    try {
+      const response = await fetch(`/api/documents/${documentId}/favorite`, {
+        method: 'POST',
+      })
+      
+      if (response.ok) {
+        // Update the selected document if it's currently open
+        if (selectedDocument && selectedDocument.id === documentId) {
+          setSelectedDocument(prev => prev ? {
+            ...prev,
+            is_favorited: !prev.is_favorited
+          } : null)
+        }
+        // Optionally refetch search results to update the list
+      }
+    } catch (error) {
+      console.error('Failed to toggle favorite:', error)
+    }
+  }
   const [showGuide, setShowGuide] = useState(false)
   const [municipalityFilterExpanded, setMunicipalityFilterExpanded] = useState(false)
   
@@ -145,20 +166,55 @@ function SearchPageContent() {
   // No need for client-side filtering anymore - it's done on the server
   const searchDocuments = allDocuments
   
+  // Calculate filtered total results
+  const hasActiveFilters = municipalityIds.length > 0 || isRelevantOnly || isAnalyzedOnly
+  const filteredTotalResults = (() => {
+    // First priority: Use municipality counts if available
+    if (municipalityCounts.length > 0) {
+      if (municipalityIds.length > 0) {
+        // Filter by selected municipalities
+        return municipalityCounts
+          .filter((mc: any) => municipalityIds.includes(mc.municipality_id))
+          .reduce((sum: number, mc: any) => sum + (mc.document_count || 0), 0)
+      } else {
+        // No filter, sum all municipalities
+        return municipalityCounts.reduce((sum: number, mc: any) => sum + (mc.document_count || 0), 0)
+      }
+    }
+    // Fallback: Use totalDocuments from API
+    else if (totalDocuments > 0) {
+      return totalDocuments
+    }
+    // No data available
+    return 0
+  })()
+
   // Debug logging (can be removed later)
   useEffect(() => {
+    console.log('=== SEARCH PAGE DEBUG ===')
     console.log('Current municipality filters:', municipalityIds)
     console.log('Documents returned:', searchDocuments.length)
+    console.log('Total documents from API:', totalDocuments)
+    console.log('Has results:', hasResults)
+    console.log('Query:', query)
+    console.log('Municipality counts:', municipalityCounts)
+    console.log('Municipality counts length:', municipalityCounts.length)
+    console.log('Filtered total results calculated:', filteredTotalResults)
     if (searchDocuments.length > 0) {
       console.log('Sample document municipality_id:', searchDocuments[0].municipality_id)
     }
-  }, [municipalityIds, searchDocuments])
-  
-  // Calculate filtered total results
-  const hasActiveFilters = municipalityIds.length > 0 || isRelevantOnly || isAnalyzedOnly
-  const filteredTotalResults = hasActiveFilters 
-    ? searchDocuments.length + searchMunicipalities.length
-    : totalDocuments  // Use totalDocuments (3048) instead of totalResults (includes municipalities etc.)
+    if (municipalityCounts.length > 0) {
+      console.log('Sample municipality count:', municipalityCounts[0])
+      // Check if we're filtering and what the count should be
+      if (municipalityIds.length > 0) {
+        const filteredCounts = municipalityCounts.filter((mc: any) => municipalityIds.includes(mc.municipality_id))
+        console.log('Filtered municipality counts:', filteredCounts)
+        const sum = filteredCounts.reduce((sum: number, mc: any) => sum + (mc.document_count || 0), 0)
+        console.log('Sum of filtered counts should be:', sum)
+      }
+    }
+    console.log('=== END DEBUG ===')
+  }, [municipalityIds, searchDocuments, totalDocuments, hasResults, query, municipalityCounts, filteredTotalResults])
 
   const clearFilters = () => {
     updateMunicipalityIds([])
@@ -287,11 +343,6 @@ function SearchPageContent() {
               className="h-8"
             >
               All
-              {municipalityIds.length === 0 && hasResults && (
-                <Badge variant="secondary" className="ml-1 text-[10px] px-1 py-0 h-4">
-                  {totalDocuments}
-                </Badge>
-              )}
             </Button>
             {municipalitiesData?.data
               ? [...municipalitiesData.data].sort((a, b) => {
@@ -302,31 +353,10 @@ function SearchPageContent() {
                 if (aSelected && !bSelected) return -1
                 if (!aSelected && bSelected) return 1
                 
-                // If both selected or both not selected, sort by count
-                const getMunicipalityCount = (munId: number) => {
-                  if (query && municipalityCounts.length > 0) {
-                    const countData = municipalityCounts.find(mc => mc.municipality_id === munId)
-                    return countData?.document_count || 0
-                  }
-                  const municipality = municipalitiesData.data?.find(m => m.id === munId)
-                  return municipality?.totalDocuments || 0
-                }
-                
-                const aCount = getMunicipalityCount(a.id)
-                const bCount = getMunicipalityCount(b.id)
-                return bCount - aCount // Sort descending by count
+                // Sort alphabetically if both selected or both not selected
+                return a.name.localeCompare(b.name)
               }).slice(0, 5).map((municipality) => {
               const isSelected = municipalityIds.includes(municipality.id)
-              
-              // Get the correct count for this municipality
-              const getDisplayCount = () => {
-                if (query && municipalityCounts.length > 0) {
-                  const countData = municipalityCounts.find(mc => mc.municipality_id === municipality.id)
-                  return countData?.document_count || 0
-                }
-                return municipality.totalDocuments || 0
-              }
-              const documentCount = getDisplayCount()
               
               return (
                 <Button
@@ -345,12 +375,6 @@ function SearchPageContent() {
                   className="h-8"
                 >
                   {municipality.name}
-                  {documentCount > 0 && (
-                    // Show real count from municipalityCounts or totalDocuments
-                    <Badge variant="secondary" className="ml-1 text-[10px] px-1 py-0 h-4">
-                      {documentCount}
-                    </Badge>
-                  )}
                 </Button>
               )
             })
@@ -375,31 +399,10 @@ function SearchPageContent() {
                   if (aSelected && !bSelected) return -1
                   if (!aSelected && bSelected) return 1
                   
-                  // If both selected or both not selected, sort by count
-                  const getMunicipalityCount = (munId: number) => {
-                    if (query && municipalityCounts.length > 0) {
-                      const countData = municipalityCounts.find(mc => mc.municipality_id === munId)
-                      return countData?.document_count || 0
-                    }
-                    const municipality = municipalitiesData.data?.find(m => m.id === munId)
-                    return municipality?.totalDocuments || 0
-                  }
-                  
-                  const aCount = getMunicipalityCount(a.id)
-                  const bCount = getMunicipalityCount(b.id)
-                  return bCount - aCount // Sort descending by count
+                  // Sort alphabetically if both selected or both not selected
+                  return a.name.localeCompare(b.name)
                 }).slice(5).map((municipality) => {
                 const isSelected = municipalityIds.includes(municipality.id)
-                
-                // Get the correct count for this municipality
-                const getDisplayCount = () => {
-                  if (query && municipalityCounts.length > 0) {
-                    const countData = municipalityCounts.find(mc => mc.municipality_id === municipality.id)
-                    return countData?.document_count || 0
-                  }
-                  return municipality.totalDocuments || 0
-                }
-                const documentCount = getDisplayCount()
                 
                 return (
                   <Button
@@ -418,12 +421,6 @@ function SearchPageContent() {
                     className="h-8"
                   >
                     {municipality.name}
-                    {documentCount > 0 && (
-                      // Show real count from municipalityCounts or totalDocuments
-                      <Badge variant="secondary" className="ml-1 text-[10px] px-1 py-0 h-4">
-                        {documentCount}
-                      </Badge>
-                    )}
                   </Button>
                 )
               })
@@ -525,7 +522,7 @@ function SearchPageContent() {
                 <h2 className="text-lg font-semibold">
                   Search results for "{query}"
                 </h2>
-                {hasResults && (
+                {hasResults && filteredTotalResults > 0 && (
                   <Badge variant="outline">
                     {filteredTotalResults} results
                   </Badge>
@@ -581,7 +578,7 @@ function SearchPageContent() {
                   <Badge variant="secondary">{searchMunicipalities.length}</Badge>
                 </div>
                 <div className="grid gap-3">
-                  {searchMunicipalities.map((municipality) => (
+                  {searchMunicipalities.map((municipality: any) => (
                     <MunicipalityResultCard key={municipality.id} municipality={municipality} />
                   ))}
                 </div>
@@ -591,50 +588,8 @@ function SearchPageContent() {
             {/* Documents Results */}
             {searchDocuments.length > 0 && (activeFilters.size === 0 || activeFilters.has('documents')) && (
               <div>
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-2">
-                      <FileText className="h-5 w-5 text-muted-foreground" />
-                      <h3 className="text-lg font-semibold">Documents</h3>
-                      <Badge variant="secondary">
-                        {totalDocuments === -1 
-                          ? `${searchDocuments.length}+` 
-                          : totalDocuments > 0 
-                            ? totalDocuments
-                            : searchDocuments.length}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Select
-                        value={limit.toString()}
-                        onValueChange={(value) => {
-                          updateLimit(parseInt(value))
-                        }}
-                      >
-                        <SelectTrigger id="search-per-page" className="h-8 w-20">
-                          <SelectValue>
-                            {limit}
-                          </SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="10">10 per page</SelectItem>
-                          <SelectItem value="25">25 per page</SelectItem>
-                          <SelectItem value="50">50 per page</SelectItem>
-                          <SelectItem value="100">100 per page</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                  {(totalPages > 1 || hasNextPage) && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-muted-foreground">
-                        Page {currentPage} {totalPages > 0 ? `of ${totalPages}` : ''}
-                      </span>
-                    </div>
-                  )}
-                </div>
                 <div className="space-y-4">
-                  {searchDocuments.map((document) => {
+                  {searchDocuments.map((document: any) => {
                     // Convert search result document to PdfDocument format
                     const pdfDocument = {
                       ...document,
@@ -642,7 +597,6 @@ function SearchPageContent() {
                       municipality_id: createMunicipalityId(document.municipality_id),
                       file_size: (document as any).file_size || null,
                       content_text: (document as any).content_text || null,
-                      content_analyzed: (document as any).content_analyzed || false,
                       is_favorited: (document as any).is_favorited || false,
                       is_relevant: (document as any).is_relevant || null,
                       relevance_score: (document as any).relevance_score || null,
@@ -653,16 +607,16 @@ function SearchPageContent() {
                       search_vector: null,
                       categories: (document as any).categories || null,
                       categorized_at: (document as any).categorized_at || null,
-                      has_aru_provisions: (document as any).has_aru_provisions || null,
+                      content_hash: (document as any).content_hash || null,
                       analysis_date: (document as any).analysis_date || null,
                       analysis_error: (document as any).analysis_error || null,
-                      content_hash: (document as any).content_hash || null,
+                      has_aru_provisions: (document as any).has_aru_provisions || null,
                       highlighted: (document as any).content_snippet ? {
                         title: document.title,
                         content: (document as any).content_snippet
                       } : undefined,
                       municipality: document.municipality ? { name: document.municipality.name } : undefined
-                    } as PdfDocument & { municipality?: { name: string } }
+                    } as any as (PdfDocument & { municipality?: { name: string } })
                     
                     return (
                       <SearchResultCard 
@@ -674,29 +628,34 @@ function SearchPageContent() {
                   })}
                 </div>
                 
-                {/* Pagination - Municipality Style */}
+                {/* Pagination */}
                 {(totalPages > 1 || hasNextPage || hasPrevPage) && (
-                  <div className="flex items-center justify-between mt-6">
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-6">
                     <div className="text-sm text-muted-foreground">
                       Showing {((currentPage - 1) * limit) + 1} to{' '}
-                      {Math.min(currentPage * limit, totalDocuments > 0 ? totalDocuments : searchDocuments.length)} of{' '}
-                      {totalDocuments > 0 ? totalDocuments : `${searchDocuments.length}+`} documents
+                      {Math.min(currentPage * limit, filteredTotalResults || searchDocuments.length)} of{' '}
+                      {filteredTotalResults || `${searchDocuments.length}+`} documents
                     </div>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        disabled={!hasPrevPage}
-                        onClick={prevPage}
-                      >
-                        Previous
-                      </Button>
-                      <Button
-                        variant="outline"
-                        disabled={!hasNextPage}
-                        onClick={nextPage}
-                      >
-                        Next
-                      </Button>
+                    <div className="flex items-center gap-4">
+                      <span className="text-sm text-muted-foreground">
+                        Page {currentPage} {totalPages > 0 ? `of ${totalPages}` : ''}
+                      </span>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          disabled={!hasPrevPage}
+                          onClick={prevPage}
+                        >
+                          Previous
+                        </Button>
+                        <Button
+                          variant="outline"
+                          disabled={!hasNextPage}
+                          onClick={nextPage}
+                        >
+                          Next
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -776,6 +735,7 @@ function SearchPageContent() {
           document={selectedDocument}
           open={!!selectedDocument}
           onOpenChange={(open) => !open && setSelectedDocument(null)}
+          onToggleFavorite={handleToggleFavorite}
           searchQuery={query}
         />
       )}
@@ -892,18 +852,13 @@ function SearchResultCard({ document, onOpenDocument }: SearchResultCardProps) {
           <div className="flex items-center gap-2 ml-4">
             {document.is_relevant && (
               <Badge variant="secondary" className="text-xs">
-                Relevant
+                ADU Related
               </Badge>
             )}
             {document.is_favorited && (
               <Badge variant="outline" className="text-xs">
                 <Star className="h-3 w-3 mr-1" />
                 Favorite
-              </Badge>
-            )}
-            {relevanceScore && (
-              <Badge variant="outline" className="text-xs">
-                {Math.round(relevanceScore * 100)}% confidence
               </Badge>
             )}
             {document.rank && (
@@ -938,7 +893,7 @@ function SearchResultCard({ document, onOpenDocument }: SearchResultCardProps) {
               <span>Size: {Math.round(document.file_size / 1024)} KB</span>
             )}
             <span>
-              Status: {document.content_analyzed ? 'Analyzed' : 'Pending Analysis'}
+              Status: {document.content_text ? 'Extracted' : 'Pending'}
             </span>
           </div>
         </div>

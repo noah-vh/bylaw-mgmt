@@ -75,7 +75,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     
     // Calculate statistics for displayed documents (limited to 100)
     const relevantDocuments = documents?.filter(doc => doc.is_relevant).length || 0
-    const analyzedDocuments = documents?.filter(doc => doc.content_analyzed).length || 0
+    const analyzedDocuments = documents?.filter(doc => doc.content_text).length || 0
 
     // Get scraping success rate
     const { data: scrapeStats } = await supabase
