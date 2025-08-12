@@ -60,13 +60,26 @@ export async function GET(request: NextRequest) {
     // Parallel search across different types
     const searchPromises = []
     
-    // Get municipality counts - disabled for now
+    // Get municipality counts - using fast version with timeout protection
     const municipalityCountsPromise = (async () => {
       try {
-        // Just return empty counts for now - counts feature is disabled
-        results.municipalityCounts = []
+        // ALWAYS get counts for ALL municipalities (don't filter by selected ones)
+        // This way users can see counts for all municipalities even when some are selected
+        const { data: counts, error } = await supabase.rpc('get_search_municipality_counts_fast', {
+          search_query: query,
+          filter_municipality_ids: null  // Always pass null to get all municipality counts
+        });
+        
+        if (error) {
+          console.error('Municipality counts error:', error);
+          results.municipalityCounts = [];
+        } else {
+          // Return all counts - let the frontend handle display
+          results.municipalityCounts = counts || [];
+        }
       } catch (error) {
-        console.log('Municipality counts error:', error)
+        console.error('Municipality counts error:', error);
+        results.municipalityCounts = [];
       }
     })()
     
@@ -249,32 +262,8 @@ export async function GET(request: NextRequest) {
     // Wait for all searches to complete
     await Promise.all(searchPromises)
 
-    // Post-process: If municipality counts are all 0, calculate from actual document results
-    if (results.municipalityCounts && results.municipalityCounts.length > 0) {
-      const hasAnyCounts = results.municipalityCounts.some((mc: any) => mc.document_count > 0)
-      
-      if (!hasAnyCounts && results.documents.length > 0) {
-        console.log('All municipality counts are 0, calculating from actual results...')
-        
-        // Count documents per municipality from actual results
-        const countsMap = new Map<number, number>()
-        results.documents.forEach((doc: any) => {
-          if (doc.municipality_id) {
-            countsMap.set(doc.municipality_id, (countsMap.get(doc.municipality_id) || 0) + 1)
-          }
-        })
-        
-        // Update the counts
-        results.municipalityCounts = results.municipalityCounts.map((mc: any) => ({
-          ...mc,
-          document_count: countsMap.get(mc.municipality_id) || 0
-        }))
-        
-        // Note: This only accounts for documents in the current page,
-        // but it's better than showing 0 for municipalities that clearly have results
-        console.log('Updated municipality counts from results:', countsMap.size, 'municipalities with documents')
-      }
-    }
+    // Municipality counts are now properly calculated by the RPC function
+    // No need for fallback logic anymore
 
     const response = {
       query,

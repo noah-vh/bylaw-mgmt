@@ -346,6 +346,17 @@ function SearchPageContent() {
             </Button>
             {municipalitiesData?.data
               ? [...municipalitiesData.data].sort((a, b) => {
+                // If we have search results, sort by count
+                if (query && municipalityCounts.length > 0) {
+                  const aCount = municipalityCounts.find((mc: any) => mc.municipality_id === a.id)?.document_count || 0
+                  const bCount = municipalityCounts.find((mc: any) => mc.municipality_id === b.id)?.document_count || 0
+                  
+                  // Sort by count (highest first)
+                  if (aCount !== bCount) {
+                    return bCount - aCount
+                  }
+                }
+                
                 // First, prioritize selected municipalities
                 const aSelected = municipalityIds.includes(a.id)
                 const bSelected = municipalityIds.includes(b.id)
@@ -357,6 +368,7 @@ function SearchPageContent() {
                 return a.name.localeCompare(b.name)
               }).slice(0, 5).map((municipality) => {
               const isSelected = municipalityIds.includes(municipality.id)
+              const count = municipalityCounts.find((mc: any) => mc.municipality_id === municipality.id)?.document_count
               
               return (
                 <Button
@@ -372,9 +384,18 @@ function SearchPageContent() {
                       updateMunicipalityIds([...municipalityIds, municipality.id])
                     }
                   }}
-                  className="h-8"
+                  className="h-8 flex items-center gap-1"
                 >
                   {municipality.name}
+                  {query && count !== undefined && count > 0 && (
+                    <Badge 
+                      variant={isSelected ? "secondary" : "outline"} 
+                      className="ml-1 h-5 px-1 text-xs"
+                      title={`${count} document${count !== 1 ? 's' : ''} matching "${query}"`}
+                    >
+                      {count}
+                    </Badge>
+                  )}
                 </Button>
               )
             })
@@ -392,6 +413,17 @@ function SearchPageContent() {
             <div className="flex flex-wrap gap-2 items-center pt-2">
               {municipalitiesData?.data
                 ? [...municipalitiesData.data].sort((a, b) => {
+                  // If we have search results, sort by count
+                  if (query && municipalityCounts.length > 0) {
+                    const aCount = municipalityCounts.find((mc: any) => mc.municipality_id === a.id)?.document_count || 0
+                    const bCount = municipalityCounts.find((mc: any) => mc.municipality_id === b.id)?.document_count || 0
+                    
+                    // Sort by count (highest first)
+                    if (aCount !== bCount) {
+                      return bCount - aCount
+                    }
+                  }
+                  
                   // First, prioritize selected municipalities
                   const aSelected = municipalityIds.includes(a.id)
                   const bSelected = municipalityIds.includes(b.id)
@@ -403,6 +435,7 @@ function SearchPageContent() {
                   return a.name.localeCompare(b.name)
                 }).slice(5).map((municipality) => {
                 const isSelected = municipalityIds.includes(municipality.id)
+                const count = municipalityCounts.find((mc: any) => mc.municipality_id === municipality.id)?.document_count
                 
                 return (
                   <Button
@@ -418,9 +451,18 @@ function SearchPageContent() {
                         updateMunicipalityIds([...municipalityIds, municipality.id])
                       }
                     }}
-                    className="h-8"
+                    className="h-8 flex items-center gap-1"
                   >
                     {municipality.name}
+                    {query && count !== undefined && count > 0 && (
+                      <Badge 
+                        variant={isSelected ? "secondary" : "outline"} 
+                        className="ml-1 h-5 px-1 text-xs"
+                        title={`${count} document${count !== 1 ? 's' : ''} matching "${query}"`}
+                      >
+                        {count}
+                      </Badge>
+                    )}
                   </Button>
                 )
               })
