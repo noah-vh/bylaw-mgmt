@@ -114,26 +114,31 @@ export async function GET(request: NextRequest) {
       
       // Apply category filter using JSONB query
       if (category) {
-        // Category format from URL is like "property-specifications"
-        // We need to map it to the actual category name
-        const categoryMap: Record<string, string> = {
-          'property-specifications': 'Property Specifications',
-          'adu-aru': 'ADU/ARU Regulations',
-          'dimensional': 'Dimensional Requirements',
-          'parking-access': 'Parking/Access',
-          'infrastructure': 'Infrastructure',
-          'zoning': 'Zoning',
-          'building-types': 'Building Types',
-          'existing-buildings': 'Existing Buildings'
+        // Check if category is already in the correct format (e.g., "Zoning")
+        // or needs to be converted from kebab-case (e.g., "property-specifications")
+        let categoryName = category
+        
+        // If it contains a dash, convert from kebab-case
+        if (category.includes('-')) {
+          const categoryMap: Record<string, string> = {
+            'property-specifications': 'Property Specifications',
+            'adu-aru': 'ADU/ARU Regulations',
+            'adu-aru-regulations': 'ADU/ARU Regulations',
+            'dimensional': 'Dimensional Requirements',
+            'dimensional-requirements': 'Dimensional Requirements',
+            'parking-access': 'Parking/Access',
+            'infrastructure': 'Infrastructure',
+            'zoning': 'Zoning',
+            'building-types': 'Building Types',
+            'existing-buildings': 'Existing Buildings'
+          }
+          categoryName = categoryMap[category.toLowerCase()] || category
         }
         
-        const categoryName = categoryMap[category]
-        if (categoryName) {
-          // Filter documents where the category exists in the JSONB and has a score > 30
-          searchQuery = searchQuery
-            .not('categories', 'is', null)
-            .gte(`categories->>${categoryName}`, 30)
-        }
+        // Filter documents where the category exists in the JSONB and has a score > 0
+        searchQuery = searchQuery
+          .not('categories', 'is', null)
+          .gte(`categories->>${categoryName}`, 1)
       }
       
       // Apply sorting
@@ -342,26 +347,31 @@ export async function GET(request: NextRequest) {
     
     // Apply category filter using JSONB query
     if (category) {
-      // Category format from URL is like "property-specifications"
-      // We need to map it to the actual category name
-      const categoryMap: Record<string, string> = {
-        'property-specifications': 'Property Specifications',
-        'adu-aru': 'ADU/ARU Regulations',
-        'dimensional': 'Dimensional Requirements',
-        'parking-access': 'Parking/Access',
-        'infrastructure': 'Infrastructure',
-        'zoning': 'Zoning',
-        'building-types': 'Building Types',
-        'existing-buildings': 'Existing Buildings'
+      // Check if category is already in the correct format (e.g., "Zoning")
+      // or needs to be converted from kebab-case (e.g., "property-specifications")
+      let categoryName = category
+      
+      // If it contains a dash, convert from kebab-case
+      if (category.includes('-')) {
+        const categoryMap: Record<string, string> = {
+          'property-specifications': 'Property Specifications',
+          'adu-aru': 'ADU/ARU Regulations',
+          'adu-aru-regulations': 'ADU/ARU Regulations',
+          'dimensional': 'Dimensional Requirements',
+          'dimensional-requirements': 'Dimensional Requirements',
+          'parking-access': 'Parking/Access',
+          'infrastructure': 'Infrastructure',
+          'zoning': 'Zoning',
+          'building-types': 'Building Types',
+          'existing-buildings': 'Existing Buildings'
+        }
+        categoryName = categoryMap[category.toLowerCase()] || category
       }
       
-      const categoryName = categoryMap[category]
-      if (categoryName) {
-        // Filter documents where the category exists in the JSONB and has a score > 30
-        query = query
-          .not('categories', 'is', null)
-          .gte(`categories->>${categoryName}`, 30)
-      }
+      // Filter documents where the category exists in the JSONB and has a score > 0
+      query = query
+        .not('categories', 'is', null)
+        .gte(`categories->>${categoryName}`, 1)
     }
 
     // Apply sorting

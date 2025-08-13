@@ -71,9 +71,10 @@ import {
 } from "@/components/ui/collapsible"
 
 import { 
-  useDocumentSearch, 
+  useDocumentSearch,
   useToggleDocumentFavorite
 } from "@/hooks/use-documents"
+import { useGlobalSearch } from "@/hooks/use-global-search"
 import { useMunicipalities } from "@/hooks/use-municipalities"
 import { useCategories } from "@/hooks/use-categories"
 import { format } from "date-fns"
@@ -119,83 +120,101 @@ function DocumentsPageContent() {
   const [selectedMunicipalities, setSelectedMunicipalities] = useState<number[]>([])
   const [municipalityFilterExpanded, setMunicipalityFilterExpanded] = useState(false)
   const [selectedCategory, setSelectedCategory] = useState<string | null>(categoryFromUrl)
+  const [searchInput, setSearchInput] = useState('')
+  const [sortBy, setSortBy] = useState<'date_found' | 'title'>('date_found')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(100)
+  const [filters, setFilters] = useState({
+    isAduRelevant: false,
+    isAnalyzed: false,
+    isFavorited: false
+  })
   
-  const {
-    data,
-    isLoading,
-    error,
-    searchParams,
-    setSearch,
-    setSearchType,
-    setMunicipality,
-    setRelevanceFilter,
-    setAnalyzedFilter,
-    setFavoritesFilter,
-    setPage,
-    setLimit,
-    setSorting,
-    setCategory,
-    refetch
-  } = useDocumentSearch('', 'fulltext', categoryFromUrl)
+  // Use regular document search for browsing (when no search query)
+  // Use 'basic' search type with empty query to get all documents
+  const documentSearch = useDocumentSearch('', 'basic', selectedCategory)
+  
+  // Set initial page size for document search
+  React.useEffect(() => {
+    if (!isSearching && documentSearch.searchParams.limit !== pageSize) {
+      documentSearch.setLimit(pageSize)
+    }
+  }, [])
+  
+  // Use global search for searching (when there's a search query)
+  const globalSearch = useGlobalSearch(
+    searchInput,
+    ['documents'],
+    pageSize,
+    (currentPage - 1) * pageSize,
+    selectedMunicipalities
+  )
+  
+  // Determine which data source to use
+  const isSearching = searchInput.trim().length >= 2
+  const data = isSearching ? globalSearch.data : documentSearch.data
+  const isLoading = isSearching ? globalSearch.isLoading : documentSearch.isLoading
+  const error = isSearching ? globalSearch.error : documentSearch.error
+  const documents = isSearching ? globalSearch.documents : (documentSearch.data?.data || [])
+  const municipalityCounts = isSearching ? globalSearch.municipalityCounts : []
+  const totalDocuments = isSearching 
+    ? globalSearch.totalDocuments 
+    : (documentSearch.data?.pagination?.total || 0)
+  const hasNextPage = isSearching 
+    ? globalSearch.hasNextPage 
+    : (documentSearch.data?.pagination?.hasNextPage || false)
+  const hasPrevPage = isSearching 
+    ? globalSearch.hasPrevPage 
+    : (documentSearch.data?.pagination?.hasPrevPage || false)
 
   // Load municipalities for the filter dropdown
   const { data: municipalitiesData } = useMunicipalities({ limit: 100 })
   
+  // Update search when input changes
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchInput.trim().length >= 2) {
+        globalSearch.search(searchInput.trim())
+      } else if (searchInput.trim().length === 0) {
+        // When search is cleared, update document search
+        documentSearch.setSearch('')
+      }
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [searchInput])
+  
   // Load categories for the filter and sort by document count
   const { categories: rawCategoriesData, loading: categoriesLoading } = useCategories()
-  const categoriesData = rawCategoriesData ? [...rawCategoriesData].sort((a, b) => b.totalDocuments - a.totalDocuments) : []
+  const categoriesData = React.useMemo(() => {
+    if (!rawCategoriesData || !Array.isArray(rawCategoriesData)) return []
+    return [...rawCategoriesData]
+      .filter(cat => cat && typeof cat === 'object' && cat.category)
+      .map(cat => ({
+        id: cat.category,
+        name: cat.category,
+        documentCount: cat.documentCount || 0,
+        totalDocuments: cat.documentCount || 0
+      }))
+      .sort((a, b) => (b.documentCount || 0) - (a.documentCount || 0))
+  }, [rawCategoriesData])
   
-  // Calculate document counts per municipality based on current filtered data
-  const municipalityDocumentCounts = React.useMemo(() => {
-    const counts: Record<number, number> = {}
-    const docs = data?.data || []
-    
-    docs.forEach(doc => {
-      if (!counts[doc.municipality_id]) {
-        counts[doc.municipality_id] = 0
-      }
-      counts[doc.municipality_id]++
-    })
-    
-    return counts
-  }, [data?.data])
-  
-  // Ensure search type is always fulltext and sync category from URL
-  React.useEffect(() => {
-    console.log('Documents page search params:', searchParams)
-    if (searchParams.searchType !== 'fulltext') {
-      console.log('Setting search type to fulltext from:', searchParams.searchType)
-      setSearchType('fulltext')
-    }
-  }, [searchParams.searchType, setSearchType])
-  
-  // Sync category from URL on mount
-  React.useEffect(() => {
-    if (categoryFromUrl && categoryFromUrl !== selectedCategory) {
-      setSelectedCategory(categoryFromUrl)
-      setCategory(categoryFromUrl)
-    }
-  }, [categoryFromUrl])
-  
-  // Debug search changes
-  React.useEffect(() => {
-    if (searchParams.search) {
-      console.log('Documents page searching for:', searchParams.search, 'with type:', searchParams.searchType)
-    }
-  }, [searchParams.search, searchParams.searchType])
-  
-  const searchType = 'fulltext'
+  // Municipality counts are directly from the global search API
   
   // Apply municipality filter
   React.useEffect(() => {
-    if (selectedMunicipalities.length === 1) {
-      setMunicipality(createMunicipalityId(selectedMunicipalities[0]))
-    } else if (selectedMunicipalities.length === 0) {
-      setMunicipality(undefined)
+    if (isSearching) {
+      globalSearch.updateMunicipalityIds(selectedMunicipalities)
+    } else {
+      // For document search, handle single municipality
+      if (selectedMunicipalities.length === 1) {
+        documentSearch.setMunicipality(createMunicipalityId(selectedMunicipalities[0]))
+      } else if (selectedMunicipalities.length === 0) {
+        documentSearch.setMunicipality(undefined)
+      }
     }
-    // Note: The current API doesn't support multiple municipality selection
-    // This would need backend changes to support an array of municipalities
-  }, [selectedMunicipalities]) // Removed setMunicipality from dependencies to prevent infinite loop
+    setCurrentPage(1) // Reset to first page when filter changes
+  }, [selectedMunicipalities, isSearching])
 
   const toggleFavoriteMutation = useToggleDocumentFavorite()
   
@@ -214,12 +233,75 @@ function DocumentsPageContent() {
   const handleToggleFavorite = async (documentId: DocumentId) => {
     try {
       await toggleFavoriteMutation.mutateAsync(documentId)
+      if (isSearching) {
+        globalSearch.refetch()
+      } else {
+        documentSearch.refetch()
+      }
     } catch (error) {
       console.error('Failed to toggle favorite:', error)
     }
   }
   
-
+  const setSorting = (sort: string, order: 'asc' | 'desc') => {
+    setSortBy(sort as any)
+    setSortOrder(order)
+    if (!isSearching) {
+      documentSearch.setSorting(sort, order)
+    }
+  }
+  
+  const setPage = (page: number) => {
+    setCurrentPage(page)
+    if (isSearching) {
+      globalSearch.updateOffset((page - 1) * pageSize)
+    } else {
+      documentSearch.setPage(page)
+    }
+  }
+  
+  const setLimit = (newLimit: number) => {
+    setPageSize(newLimit)
+    setCurrentPage(1)
+    if (isSearching) {
+      globalSearch.updateLimit(newLimit)
+      globalSearch.updateOffset(0)
+    } else {
+      documentSearch.setLimit(newLimit)
+    }
+  }
+  
+  // Apply filters for document search
+  React.useEffect(() => {
+    if (!isSearching) {
+      documentSearch.setRelevanceFilter(filters.isAduRelevant || undefined)
+      documentSearch.setAnalyzedFilter(filters.isAnalyzed || undefined)
+      documentSearch.setFavoritesFilter(filters.isFavorited || undefined)
+    }
+  }, [filters, isSearching])
+  
+  // Create searchParams object for compatibility
+  const searchParams = {
+    search: searchInput,
+    sort: sortBy,
+    order: sortOrder,
+    municipalityId: selectedMunicipalities[0] ? createMunicipalityId(selectedMunicipalities[0]) : undefined,
+    isAduRelevant: filters.isAduRelevant,
+    isAnalyzed: filters.isAnalyzed,
+    isFavorited: filters.isFavorited
+  } as DocumentSearchParams
+  
+  // Format documents data for compatibility
+  const formattedData = {
+    data: documents,
+    pagination: {
+      page: currentPage,
+      limit: pageSize,
+      total: totalDocuments === -1 ? documents.length : totalDocuments,
+      hasNextPage,
+      hasPrevPage
+    }
+  }
 
   if (error) {
     return (
@@ -227,7 +309,7 @@ function DocumentsPageContent() {
         <div className="text-center">
           <h1 className="text-2xl font-bold text-destructive mb-4">Error Loading Documents</h1>
           <p className="text-muted-foreground mb-4">{error.message}</p>
-          <Button onClick={() => refetch()}>Try Again</Button>
+          <Button onClick={() => isSearching ? globalSearch.refetch() : documentSearch.refetch()}>Try Again</Button>
         </div>
       </div>
     )
@@ -262,7 +344,11 @@ function DocumentsPageContent() {
                 municipalities={municipalitiesData?.data ? [...municipalitiesData.data] : []}
                 onUploadSuccess={(document) => {
                   setShowUploadDialog(false)
-                  refetch() // Refresh the documents list
+                  if (isSearching) {
+                    globalSearch.refetch()
+                  } else {
+                    documentSearch.refetch()
+                  }
                 }}
                 onCancel={() => setShowUploadDialog(false)}
               />
@@ -278,8 +364,8 @@ function DocumentsPageContent() {
             <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search document titles and content..."
-              value={searchParams.search || ''}
-              onChange={(e) => setSearch(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               className="pl-10"
             />
           </div>
@@ -290,13 +376,15 @@ function DocumentsPageContent() {
             onValueChange={(value) => {
               if (value === "all") {
                 setSelectedCategory(null)
-                setCategory(undefined)
+                documentSearch.setCategory(null)
+                // Remove category filter
                 const newUrl = new URL(window.location.href)
                 newUrl.searchParams.delete('category')
                 window.history.replaceState({}, '', newUrl.toString())
               } else {
                 setSelectedCategory(value)
-                setCategory(value)
+                documentSearch.setCategory(value)
+                // Update URL with category filter
                 const newUrl = new URL(window.location.href)
                 newUrl.searchParams.set('category', value)
                 window.history.replaceState({}, '', newUrl.toString())
@@ -312,8 +400,8 @@ function DocumentsPageContent() {
                 <SelectItem value="loading" disabled>Loading...</SelectItem>
               ) : categoriesData.length > 0 ? (
                 categoriesData.map((category) => {
-                  // Clean up any multiple spaces and trim
-                  const cleanName = category.name.replace(/\s+/g, ' ').trim()
+                  // Clean up any multiple spaces and trim - with safety check
+                  const cleanName = category?.name ? category.name.replace(/\s+/g, ' ').trim() : 'Unknown Category'
                   return (
                     <SelectItem key={category.id} value={category.id} textValue={cleanName}>
                       {cleanName}
@@ -329,7 +417,7 @@ function DocumentsPageContent() {
               <DropdownMenuTrigger className="inline-flex items-center justify-center h-10 px-4 py-2 text-sm font-medium rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50">
                 <Filter className="mr-2 h-4 w-4" />
                 Filters
-                {(searchParams.isAduRelevant || searchParams.isAnalyzed || searchParams.isFavorited) && (
+                {(filters.isAduRelevant || filters.isAnalyzed || filters.isFavorited) && (
                   <Badge variant="secondary" className="ml-2 h-5 px-1">
                     {[searchParams.isAduRelevant, searchParams.isAnalyzed, searchParams.isFavorited].filter(Boolean).length}
                   </Badge>
@@ -340,20 +428,20 @@ function DocumentsPageContent() {
                 <DropdownMenuSeparator />
                 
                 <DropdownMenuCheckboxItem
-                  checked={searchParams.isAduRelevant === true}
-                  onCheckedChange={(checked) => setRelevanceFilter(checked || undefined)}
+                  checked={filters.isAduRelevant === true}
+                  onCheckedChange={(checked) => setFilters(prev => ({ ...prev, isAduRelevant: checked || false }))}
                 >
                   ADU Relevant Only
                 </DropdownMenuCheckboxItem>
                 <DropdownMenuCheckboxItem
-                  checked={searchParams.isAnalyzed === true}
-                  onCheckedChange={(checked) => setAnalyzedFilter(checked || undefined)}
+                  checked={filters.isAnalyzed === true}
+                  onCheckedChange={(checked) => setFilters(prev => ({ ...prev, isAnalyzed: checked || false }))}
                 >
                   Content Extracted
                 </DropdownMenuCheckboxItem>
                 <DropdownMenuCheckboxItem
-                  checked={searchParams.isFavorited === true}
-                  onCheckedChange={(checked) => setFavoritesFilter(checked || undefined)}
+                  checked={filters.isFavorited === true}
+                  onCheckedChange={(checked) => setFilters(prev => ({ ...prev, isFavorited: checked || false }))}
                 >
                   Favorites Only
                 </DropdownMenuCheckboxItem>
@@ -363,9 +451,7 @@ function DocumentsPageContent() {
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
                       onClick={() => {
-                        setRelevanceFilter(undefined)
-                        setAnalyzedFilter(undefined)
-                        setFavoritesFilter(undefined)
+                        setFilters({ isAduRelevant: false, isAnalyzed: false, isFavorited: false })
                       }}
                       className="text-sm text-muted-foreground cursor-pointer"
                     >
@@ -401,15 +487,14 @@ function DocumentsPageContent() {
 
             {/* Page Size Selector */}
             <Select
-              value={data?.pagination?.limit?.toString() || "100"}
+              value={pageSize.toString()}
               onValueChange={(value) => {
-                setPage(1) // Reset to first page when changing limit
                 setLimit(parseInt(value))
               }}
             >
               <SelectTrigger className="h-10 w-20">
                 <SelectValue>
-                  {data?.pagination?.limit || 100}
+                  {pageSize}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -484,29 +569,21 @@ function DocumentsPageContent() {
               className="h-8"
             >
               All
-              {selectedMunicipalities.length === 0 && data?.pagination?.total && (
+              {selectedMunicipalities.length === 0 && totalDocuments > 0 && (
                 <Badge variant="secondary" className="ml-1 text-[10px] px-1 py-0 h-4">
-                  {data.pagination.total}
+                  {totalDocuments}
                 </Badge>
               )}
             </Button>
             {municipalitiesData?.data
               ? [...municipalitiesData.data].sort((a, b) => {
-                // Sort by category-filtered counts when category is selected
-                if (selectedCategory) {
-                  const aCount = municipalityDocumentCounts[a.id] || 0
-                  const bCount = municipalityDocumentCounts[b.id] || 0
-                  return bCount - aCount
-                }
-                // Otherwise sort by total documents
-                const aCount = a.totalDocuments || 0
-                const bCount = b.totalDocuments || 0
-                return bCount - aCount // Sort descending by count
+                // Always sort alphabetically
+                return a.name.localeCompare(b.name)
               }).slice(0, 5).map((municipality) => {
               const isSelected = selectedMunicipalities.includes(municipality.id)
-              // Use category-filtered count if available, otherwise fall back to total
-              const docCount = municipalityDocumentCounts[municipality.id] || 0
-              const totalDocs = selectedCategory ? docCount : (municipality.totalDocuments || 0)
+              // Get count from search results when searching, otherwise use total documents
+              const searchCount = municipalityCounts.find((mc: any) => mc.municipality_id === municipality.id)?.document_count
+              const docCount = searchInput ? (searchCount || 0) : (municipality.totalDocuments || 0)
               
               return (
                 <Button
@@ -523,12 +600,19 @@ function DocumentsPageContent() {
                     }
                   }}
                   className="h-8"
-                  disabled={!!(selectedCategory && (!docCount || docCount === 0))}
+                  disabled={false}
                 >
                   {municipality.name}
-                  {totalDocs > 0 && (
-                    <Badge variant="secondary" className="ml-1 text-[10px] px-1 py-0 h-4">
-                      {totalDocs}
+                  {docCount > 0 && (
+                    <Badge 
+                      variant={isSelected ? "secondary" : "outline"} 
+                      className="ml-1 h-5 px-1 text-xs"
+                      title={searchInput 
+                        ? `${docCount} document${docCount !== 1 ? 's' : ''} matching "${searchInput}"`
+                        : `${docCount} total document${docCount !== 1 ? 's' : ''}`
+                      }
+                    >
+                      {docCount}
                     </Badge>
                   )}
                 </Button>
@@ -548,21 +632,13 @@ function DocumentsPageContent() {
             <div className="flex flex-wrap gap-2 items-center pt-2">
               {municipalitiesData?.data
                 ? [...municipalitiesData.data].sort((a, b) => {
-                  // Sort by category-filtered counts when category is selected
-                  if (selectedCategory) {
-                    const aCount = municipalityDocumentCounts[a.id] || 0
-                    const bCount = municipalityDocumentCounts[b.id] || 0
-                    return bCount - aCount
-                  }
-                  // Otherwise sort by total documents
-                  const aCount = a.totalDocuments || 0
-                  const bCount = b.totalDocuments || 0
-                  return bCount - aCount // Sort descending by count
+                  // Always sort alphabetically
+                  return a.name.localeCompare(b.name)
                 }).slice(5).map((municipality) => {
                 const isSelected = selectedMunicipalities.includes(municipality.id)
-                // Use category-filtered count if available, otherwise fall back to total
-                const docCount = municipalityDocumentCounts[municipality.id] || 0
-                const totalDocs = selectedCategory ? docCount : (municipality.totalDocuments || 0)
+                // Get count from search results when searching, otherwise use total documents
+                const searchCount = municipalityCounts.find((mc: any) => mc.municipality_id === municipality.id)?.document_count
+                const docCount = searchInput ? (searchCount || 0) : (municipality.totalDocuments || 0)
                 
                 return (
                   <Button
@@ -579,12 +655,19 @@ function DocumentsPageContent() {
                       }
                     }}
                     className="h-8"
-                    disabled={!!(selectedCategory && (!docCount || docCount === 0))}
+                    disabled={false}
                   >
                     {municipality.name}
-                    {totalDocs > 0 && (
-                      <Badge variant="secondary" className="ml-1 text-[10px] px-1 py-0 h-4">
-                        {totalDocs}
+                    {docCount > 0 && (
+                      <Badge 
+                        variant={isSelected ? "secondary" : "outline"} 
+                        className="ml-1 h-5 px-1 text-xs"
+                        title={searchInput 
+                          ? `${docCount} document${docCount !== 1 ? 's' : ''} matching "${searchInput}"`
+                          : `${docCount} total document${docCount !== 1 ? 's' : ''}`
+                        }
+                      >
+                        {docCount}
                       </Badge>
                     )}
                   </Button>
@@ -600,7 +683,7 @@ function DocumentsPageContent() {
       {viewMode === 'table' ? (
         <DocumentTableView
           key={`table-${searchParams.municipalityId || 'all'}`}
-          data={data}
+          data={formattedData}
           isLoading={isLoading}
           searchParams={searchParams}
           setSorting={setSorting}
@@ -610,7 +693,7 @@ function DocumentsPageContent() {
       ) : (
         <DocumentGridView
           key={`grid-${searchParams.municipalityId || 'all'}`}
-          data={data}
+          data={formattedData}
           isLoading={isLoading}
           onToggleFavorite={handleToggleFavorite}
           onOpenDocument={handleOpenDocument}
@@ -618,25 +701,25 @@ function DocumentsPageContent() {
       )}
 
       {/* Pagination */}
-      {data?.pagination && (
+      {formattedData?.pagination && (
         <div className="flex items-center justify-between mt-6">
           <div className="text-sm text-muted-foreground">
-            Showing {((data.pagination.page - 1) * data.pagination.limit) + 1} to{' '}
-            {Math.min(data.pagination.page * data.pagination.limit, data.pagination.total)} of{' '}
-            {data.pagination.total} documents
+            Showing {((formattedData.pagination.page - 1) * formattedData.pagination.limit) + 1} to{' '}
+            {Math.min(formattedData.pagination.page * formattedData.pagination.limit, formattedData.pagination.total)} of{' '}
+            {formattedData.pagination.total} documents
           </div>
           <div className="flex gap-2">
             <Button
               variant="outline"
-              disabled={!data.pagination.hasPrevPage}
-              onClick={() => setPage(data.pagination.page - 1)}
+              disabled={!formattedData.pagination.hasPrevPage}
+              onClick={() => setPage(formattedData.pagination.page - 1)}
             >
               Previous
             </Button>
             <Button
               variant="outline"
-              disabled={!data.pagination.hasNextPage}
-              onClick={() => setPage(data.pagination.page + 1)}
+              disabled={!formattedData.pagination.hasNextPage}
+              onClick={() => setPage(formattedData.pagination.page + 1)}
             >
               Next
             </Button>
