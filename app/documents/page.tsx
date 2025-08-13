@@ -189,12 +189,12 @@ function DocumentsPageContent() {
   const categoriesData = React.useMemo(() => {
     if (!rawCategoriesData || !Array.isArray(rawCategoriesData)) return []
     return [...rawCategoriesData]
-      .filter(cat => cat && typeof cat === 'object' && cat.category)
+      .filter(cat => cat && typeof cat === 'object' && cat.id && cat.name)
       .map(cat => ({
-        id: cat.category,
-        name: cat.category,
-        documentCount: cat.documentCount || 0,
-        totalDocuments: cat.documentCount || 0
+        id: cat.id,
+        name: cat.name,
+        documentCount: cat.totalDocuments || 0,
+        totalDocuments: cat.totalDocuments || 0
       }))
       .sort((a, b) => (b.documentCount || 0) - (a.documentCount || 0))
   }, [rawCategoriesData])
@@ -376,7 +376,7 @@ function DocumentsPageContent() {
             onValueChange={(value) => {
               if (value === "all") {
                 setSelectedCategory(null)
-                documentSearch.setCategory(null)
+                documentSearch.setCategory(undefined)
                 // Remove category filter
                 const newUrl = new URL(window.location.href)
                 newUrl.searchParams.delete('category')
