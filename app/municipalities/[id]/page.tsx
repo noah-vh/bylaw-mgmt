@@ -14,6 +14,7 @@ import {
   RefreshCw,
   CheckCircle,
   AlertCircle,
+  AlertTriangle,
   Clock,
   Edit,
   Trash2,
@@ -21,7 +22,9 @@ import {
   Save,
   X,
   Star,
-  MoreHorizontal
+  MoreHorizontal,
+  MapPin,
+  Shield
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -32,6 +35,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Textarea } from "@/components/ui/textarea"
 import {
   Table,
   TableBody,
@@ -54,6 +58,7 @@ import type { Municipality, PdfDocument, MunicipalityStatus } from "@/types/data
 import { createDocumentId } from "@/types/database"
 import { DocumentViewer } from "@/components/document-viewer"
 import { useToggleDocumentFavorite } from "@/hooks/use-documents"
+import type { MunicipalityBylawData, MunicipalityBylawDataInput } from "@/lib/municipality-bylaw-types"
 
 interface MunicipalityDetailData {
   municipality: Municipality & {
@@ -65,6 +70,7 @@ interface MunicipalityDetailData {
     totalDocuments: number
     relevantDocuments: number
   }
+  bylaw_data?: MunicipalityBylawData
 }
 
 export default function MunicipalityDetailPage() {
@@ -78,14 +84,16 @@ export default function MunicipalityDetailPage() {
   const [documentsFilter, setDocumentsFilter] = useState<string>("all")
   const [selectedDocument, setSelectedDocument] = useState<(PdfDocument & { municipality?: { name: string } }) | null>(null)
   
-  // Settings state
+  // Combined editing state
   const [isEditing, setIsEditing] = useState(false)
   const [settingsForm, setSettingsForm] = useState({
     name: "",
     website_url: "",
     status: "pending" as MunicipalityStatus
   })
-  const [settingsSaving, setSettingsSaving] = useState(false)
+  const [bylawForm, setBylawForm] = useState<Partial<MunicipalityBylawDataInput>>({})
+  const [saving, setSaving] = useState(false)
+  const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
   
   // Hook for toggling favorites
   const toggleFavoriteMutation = useToggleDocumentFavorite()
@@ -94,20 +102,72 @@ export default function MunicipalityDetailPage() {
     const fetchMunicipalityDetail = async () => {
       try {
         setLoading(true)
-        const response = await fetch(`/api/municipalities/${municipalityId}`)
-        if (!response.ok) {
-          throw new Error(`Failed to fetch municipality: ${response.statusText}`)
+        const [municipalityResponse, bylawResponse] = await Promise.all([
+          fetch(`/api/municipalities/${municipalityId}`),
+          fetch(`/api/municipalities/${municipalityId}/bylaw-data`)
+        ])
+        
+        if (!municipalityResponse.ok) {
+          throw new Error(`Failed to fetch municipality: ${municipalityResponse.statusText}`)
         }
-        const result = await response.json()
-        setData(result.data)
+        
+        const municipalityResult = await municipalityResponse.json()
+        const dataWithBylaws = { ...municipalityResult.data }
+        
+        // Add bylaw data if available
+        if (bylawResponse.ok) {
+          const bylawResult = await bylawResponse.json()
+          dataWithBylaws.bylaw_data = bylawResult.bylaw_data
+        }
+        
+        setData(dataWithBylaws)
         
         // Populate settings form
-        const municipality = result.data.municipality
+        const municipality = municipalityResult.data.municipality
         setSettingsForm({
           name: municipality.name || "",
           website_url: municipality.website_url || "",
           status: municipality.status || "active"
         })
+        
+        // Populate bylaw form
+        if (dataWithBylaws.bylaw_data) {
+          setBylawForm(dataWithBylaws.bylaw_data)
+        } else {
+          // Initialize with default values
+          setBylawForm({
+            municipality_id: parseInt(municipalityId),
+            permit_type: 'special_permit',
+            owner_occupancy_required: 'none',
+            max_primary_dwellings: 1,
+            max_adus: 1,
+            max_total_units: 2,
+            attached_adu_height_rule: 'same_as_primary',
+            attached_adu_setback_rule: 'same_as_primary',
+            adu_coverage_counting: 'full',
+            adu_parking_spaces_required: 1,
+            architectural_compatibility: 'none',
+            entrance_requirements: 'no_restriction',
+            utility_connections: 'may_share',
+            septic_sewer_requirements: 'public_sewer_required',
+            adu_types_allowed: {
+              detached: false,
+              attached: false,
+              garage_conversion: false,
+              basement_conversion: false,
+              interior: false,
+            },
+            parking_configuration_allowed: {
+              uncovered: true,
+              covered: true,
+              garage: true,
+              tandem: false,
+              on_street: false,
+            },
+            permitted_zones: [],
+            source_documents: [],
+          })
+        }
       } catch (error) {
         console.error('Error fetching municipality:', error)
         setError(error instanceof Error ? error.message : 'Failed to load municipality')
@@ -121,44 +181,73 @@ export default function MunicipalityDetailPage() {
     }
   }, [municipalityId])
 
-  const handleSaveSettings = async () => {
-    setSettingsSaving(true)
+  const handleSaveCombined = async () => {
+    if (!municipalityId) return
+
+    setSaving(true)
+    setSaveMessage(null)
+
     try {
-      const dataToSave = { ...settingsForm }
-      console.log('Saving settings:', dataToSave)
-      const response = await fetch(`/api/municipalities/${municipalityId}`, {
+      // Save municipality settings
+      const settingsResponse = await fetch(`/api/municipalities/${municipalityId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(dataToSave)
+        body: JSON.stringify(settingsForm)
       })
-      
-      if (response.ok) {
-        const result = await response.json()
-        console.log('Settings saved successfully:', result)
-        // Update the data with the new settings
-        if (data) {
-          setData({
-            ...data,
-            municipality: { ...data.municipality, ...result.data }
-          })
-        }
-        setIsEditing(false)
-        // Optionally show a success message
-        alert('Settings saved successfully!')
-      } else {
-        const errorData = await response.json()
-        console.error('Failed to save settings:', errorData)
-        alert(`Failed to save settings: ${errorData.error || 'Unknown error'}`)
+
+      if (!settingsResponse.ok) {
+        const errorData = await settingsResponse.json()
+        throw new Error(`Failed to save settings: ${errorData.error || 'Unknown error'}`)
       }
+
+      // Save bylaw data
+      const isUpdate = data?.bylaw_data
+      const bylawMethod = isUpdate ? 'PUT' : 'POST'
+      const bylawUrl = `/api/municipalities/${municipalityId}/bylaw-data`
+
+      const bylawResponse = await fetch(bylawUrl, {
+        method: bylawMethod,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(bylawForm),
+      })
+
+      if (!bylawResponse.ok) {
+        const errorData = await bylawResponse.json()
+        throw new Error(`Failed to save bylaw data: ${errorData.error || 'Unknown error'}`)
+      }
+
+      // Both saves successful
+      const settingsResult = await settingsResponse.json()
+      const bylawResult = await bylawResponse.json()
+
+      setSaveMessage({ 
+        type: 'success', 
+        text: 'Municipality settings and bylaw data saved successfully!' 
+      })
+
+      // Update local data
+      if (data) {
+        setData({
+          ...data,
+          municipality: { ...data.municipality, ...settingsResult.data },
+          bylaw_data: bylawResult.data
+        })
+      }
+      setIsEditing(false)
     } catch (error) {
-      console.error('Error saving settings:', error)
-      alert(`Error saving settings: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      setSaveMessage({ 
+        type: 'error', 
+        text: error instanceof Error ? error.message : 'Error saving data' 
+      })
+      console.error('Error saving:', error)
     } finally {
-      setSettingsSaving(false)
+      setSaving(false)
     }
   }
 
-  const handleCancelSettings = () => {
+  const handleCancelEditing = () => {
     if (data) {
       const municipality = data.municipality
       setSettingsForm({
@@ -166,8 +255,48 @@ export default function MunicipalityDetailPage() {
         website_url: municipality.website_url || "",
         status: municipality.status || "active"
       })
+      
+      // Reset bylaw form
+      if (data.bylaw_data) {
+        setBylawForm(data.bylaw_data)
+      } else {
+        // Initialize with default values
+        setBylawForm({
+          municipality_id: parseInt(municipalityId),
+          permit_type: 'special_permit',
+          owner_occupancy_required: 'none',
+          max_primary_dwellings: 1,
+          max_adus: 1,
+          max_total_units: 2,
+          attached_adu_height_rule: 'same_as_primary',
+          attached_adu_setback_rule: 'same_as_primary',
+          adu_coverage_counting: 'full',
+          adu_parking_spaces_required: 1,
+          architectural_compatibility: 'none',
+          entrance_requirements: 'no_restriction',
+          utility_connections: 'may_share',
+          septic_sewer_requirements: 'public_sewer_required',
+          adu_types_allowed: {
+            detached: false,
+            attached: false,
+            garage_conversion: false,
+            basement_conversion: false,
+            interior: false,
+          },
+          parking_configuration_allowed: {
+            uncovered: true,
+            covered: true,
+            garage: true,
+            tandem: false,
+            on_street: false,
+          },
+          permitted_zones: [],
+          source_documents: [],
+        })
+      }
     }
     setIsEditing(false)
+    setSaveMessage(null)
   }
 
   const handleToggleFavorite = async (documentId: number) => {
@@ -187,6 +316,24 @@ export default function MunicipalityDetailPage() {
     } catch (error) {
       console.error('Failed to toggle favorite:', error)
     }
+  }
+
+  // Form update handlers
+  const updateBylawForm = (field: keyof MunicipalityBylawDataInput, value: any) => {
+    setBylawForm(prev => ({
+      ...prev,
+      [field]: value
+    }))
+  }
+
+  const updateNestedBylawData = (field: keyof MunicipalityBylawDataInput, subField: string, value: any) => {
+    setBylawForm(prev => ({
+      ...prev,
+      [field]: {
+        ...(prev[field] as any),
+        [subField]: value
+      }
+    }))
   }
 
 
@@ -237,11 +384,16 @@ export default function MunicipalityDetailPage() {
       doc.title?.toLowerCase().includes(documentsSearch.toLowerCase()) ||
       doc.filename?.toLowerCase().includes(documentsSearch.toLowerCase())
     
+    const categories = doc.categories as Record<string, number> | null | undefined
     const matchesFilter = documentsFilter === "all" || 
-      (documentsFilter === "relevant" && doc.is_relevant) ||
-      (documentsFilter === "not-relevant" && !doc.is_relevant) ||
-      (documentsFilter === "analyzed" && doc.content_text) ||
-      (documentsFilter === "not-analyzed" && !doc.content_text)
+      (documentsFilter === "zoning" && (categories?.["Zoning"] || 0) > 0) ||
+      (documentsFilter === "building-types" && (categories?.["Building Types"] || 0) > 0) ||
+      (documentsFilter === "infrastructure" && (categories?.["Infrastructure"] || 0) > 0) ||
+      (documentsFilter === "parking-access" && (categories?.["Parking/Access"] || 0) > 0) ||
+      (documentsFilter === "existing-buildings" && (categories?.["Existing Buildings"] || 0) > 0) ||
+      (documentsFilter === "adu-aru" && (categories?.["ADU/ARU Regulations"] || 0) > 0) ||
+      (documentsFilter === "property-specs" && (categories?.["Property Specifications"] || 0) > 0) ||
+      (documentsFilter === "dimensional" && (categories?.["Dimensional Requirements"] || 0) > 0)
     
     return matchesSearch && matchesFilter
   })
@@ -269,39 +421,16 @@ export default function MunicipalityDetailPage() {
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid gap-6 md:grid-cols-2 mb-8">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Documents</CardTitle>
-            <FileText className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.totalDocuments}</div>
-            <p className="text-xs text-muted-foreground">Documents collected</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Relevant Documents</CardTitle>
-            <CheckCircle className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.relevantDocuments}</div>
-            <p className="text-xs text-muted-foreground">
-              {stats.totalDocuments > 0 ? Math.round((stats.relevantDocuments / stats.totalDocuments) * 100) : 0}% relevant
-            </p>
-          </CardContent>
-        </Card>
-
-
-      </div>
 
       {/* Tabs */}
       <Tabs defaultValue="documents" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="documents">Documents</TabsTrigger>
+          <TabsTrigger value="bylaw-data" className="flex items-center gap-2">
+            <Shield className="h-4 w-4" />
+            Bylaw Data
+            {data?.bylaw_data && <Badge variant="secondary" className="ml-1 text-xs">✓</Badge>}
+          </TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
 
@@ -322,14 +451,18 @@ export default function MunicipalityDetailPage() {
               </div>
               <Select value={documentsFilter} onValueChange={setDocumentsFilter}>
                 <SelectTrigger className="w-48">
-                  <SelectValue placeholder="Filter documents" />
+                  <SelectValue placeholder="Filter by category" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Documents</SelectItem>
-                  <SelectItem value="relevant">Relevant Only</SelectItem>
-                  <SelectItem value="not-relevant">Not Relevant</SelectItem>
-                  <SelectItem value="analyzed">Analyzed</SelectItem>
-                  <SelectItem value="not-analyzed">Not Analyzed</SelectItem>
+                  <SelectItem value="all">All Categories</SelectItem>
+                  <SelectItem value="zoning">Zoning</SelectItem>
+                  <SelectItem value="building-types">Building Types</SelectItem>
+                  <SelectItem value="infrastructure">Infrastructure</SelectItem>
+                  <SelectItem value="parking-access">Parking/Access</SelectItem>
+                  <SelectItem value="existing-buildings">Existing Buildings</SelectItem>
+                  <SelectItem value="adu-aru">ADU/ARU Regulations</SelectItem>
+                  <SelectItem value="property-specs">Property Specifications</SelectItem>
+                  <SelectItem value="dimensional">Dimensional Requirements</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -343,8 +476,7 @@ export default function MunicipalityDetailPage() {
                   <TableRow>
                     <TableHead>Document</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Relevance</TableHead>
-                    <TableHead>Date Found</TableHead>
+                    <TableHead>Date Published</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -377,18 +509,6 @@ export default function MunicipalityDetailPage() {
                             Pending
                           </Badge>
                         )}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Badge variant={document.is_relevant ? "default" : "secondary"}>
-                            {document.is_relevant ? "Relevant" : "Not Relevant"}
-                          </Badge>
-                          {document.relevance_score && (
-                            <span className="text-xs text-muted-foreground">
-                              {Math.round(document.relevance_score * 100)}%
-                            </span>
-                          )}
-                        </div>
                       </TableCell>
                       <TableCell>
                         {document.date_found ? format(new Date(document.date_found), 'MMM d, yyyy') : 'Unknown'}
@@ -436,9 +556,308 @@ export default function MunicipalityDetailPage() {
           </Card>
         </TabsContent>
 
+        <TabsContent value="bylaw-data" className="space-y-6">
+          {saveMessage && (
+            <div className={`p-3 rounded-lg flex items-center gap-2 ${
+              saveMessage.type === 'success' 
+                ? 'bg-green-50 border border-green-200 text-green-700 dark:bg-green-950/30 dark:border-green-800 dark:text-green-300' 
+                : 'bg-red-50 border border-red-200 text-red-700 dark:bg-red-950/30 dark:border-red-800 dark:text-red-300'
+            }`}>
+              {saveMessage.type === 'success' ? (
+                <CheckCircle className="h-4 w-4" />
+              ) : (
+                <AlertCircle className="h-4 w-4" />
+              )}
+              {saveMessage.text}
+            </div>
+          )}
 
+          {/* Basic Information */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Shield className="h-4 w-4" />
+                    ADU Bylaw Data
+                  </CardTitle>
+                  <CardDescription>
+                    Configure ADU requirements and regulations for this municipality
+                  </CardDescription>
+                </div>
+                <div className="flex gap-2">
+                  {isEditing ? (
+                    <>
+                      <Button variant="outline" onClick={handleCancelEditing} disabled={saving}>
+                        <X className="mr-2 h-4 w-4" />
+                        Cancel
+                      </Button>
+                      <Button onClick={handleSaveCombined} disabled={saving}>
+                        {saving ? (
+                          <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Save className="mr-2 h-4 w-4" />
+                        )}
+                        Save All Changes
+                      </Button>
+                    </>
+                  ) : (
+                    <Button onClick={() => setIsEditing(true)}>
+                      <Edit className="mr-2 h-4 w-4" />
+                      {data?.bylaw_data ? 'Edit' : 'Add'} Municipality Data
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Basic Information */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Basic Information</h3>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="ordinance">Bylaw/Ordinance Number</Label>
+                    {isEditing ? (
+                      <Input
+                        id="ordinance"
+                        value={bylawForm.bylaw_ordinance_number || ''}
+                        onChange={(e) => updateBylawForm('bylaw_ordinance_number', e.target.value)}
+                        placeholder="e.g., 2024-15"
+                      />
+                    ) : (
+                      <div className="p-2 bg-muted rounded-md">
+                        {data?.bylaw_data?.bylaw_ordinance_number || 'Not specified'}
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="effective_date">Effective Date</Label>
+                    {isEditing ? (
+                      <Input
+                        id="effective_date"
+                        type="date"
+                        value={bylawForm.effective_date || ''}
+                        onChange={(e) => updateBylawForm('effective_date', e.target.value)}
+                      />
+                    ) : (
+                      <div className="p-2 bg-muted rounded-md">
+                        {data?.bylaw_data?.effective_date ? 
+                          format(new Date(data.bylaw_data.effective_date), 'PPP') : 
+                          'Not specified'
+                        }
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* ADU Types Allowed */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">ADU Types Allowed</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { key: 'detached', label: 'Detached ADU' },
+                    { key: 'attached', label: 'Attached ADU' },
+                    { key: 'garage_conversion', label: 'Garage Conversion' },
+                    { key: 'basement_conversion', label: 'Basement Conversion' },
+                    { key: 'interior', label: 'Interior ADU' },
+                  ].map(({ key, label }) => (
+                    <div key={key} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={key}
+                        checked={bylawForm.adu_types_allowed?.[key as keyof typeof bylawForm.adu_types_allowed] || false}
+                        onCheckedChange={(checked) => 
+                          updateNestedBylawData('adu_types_allowed', key, checked)
+                        }
+                        disabled={!isEditing}
+                      />
+                      <Label htmlFor={key} className="text-sm">{label}</Label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Setback Requirements */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Setback Requirements (ft)</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="front_setback">Front Setback (min)</Label>
+                    {isEditing ? (
+                      <Input
+                        id="front_setback"
+                        type="number"
+                        step="0.1"
+                        value={bylawForm.front_setback_min_ft || ''}
+                        onChange={(e) => updateBylawForm('front_setback_min_ft', parseFloat(e.target.value))}
+                      />
+                    ) : (
+                      <div className="p-2 bg-muted rounded-md">
+                        {data?.bylaw_data?.front_setback_min_ft ? `${data.bylaw_data.front_setback_min_ft} ft` : 'Not specified'}
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="rear_setback">Rear Setback (min)</Label>
+                    {isEditing ? (
+                      <Input
+                        id="rear_setback"
+                        type="number"
+                        step="0.1"
+                        value={bylawForm.rear_setback_standard_ft || ''}
+                        onChange={(e) => updateBylawForm('rear_setback_standard_ft', parseFloat(e.target.value))}
+                      />
+                    ) : (
+                      <div className="p-2 bg-muted rounded-md">
+                        {data?.bylaw_data?.rear_setback_standard_ft ? `${data.bylaw_data.rear_setback_standard_ft} ft` : 'Not specified'}
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="side_setback">Side Setback (min)</Label>
+                    {isEditing ? (
+                      <Input
+                        id="side_setback"
+                        type="number"
+                        step="0.1"
+                        value={bylawForm.side_setback_interior_ft || ''}
+                        onChange={(e) => updateBylawForm('side_setback_interior_ft', parseFloat(e.target.value))}
+                      />
+                    ) : (
+                      <div className="p-2 bg-muted rounded-md">
+                        {data?.bylaw_data?.side_setback_interior_ft ? `${data.bylaw_data.side_setback_interior_ft} ft` : 'Not specified'}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* ADU Size Limits */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">ADU Size Limits</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="min_size">Minimum Size (sq ft)</Label>
+                    {isEditing ? (
+                      <Input
+                        id="min_size"
+                        type="number"
+                        value={bylawForm.detached_adu_min_size_sqft || ''}
+                        onChange={(e) => updateBylawForm('detached_adu_min_size_sqft', parseInt(e.target.value))}
+                      />
+                    ) : (
+                      <div className="p-2 bg-muted rounded-md">
+                        {data?.bylaw_data?.detached_adu_min_size_sqft ? `${data.bylaw_data.detached_adu_min_size_sqft} sq ft` : 'Not specified'}
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="max_size">Maximum Size (sq ft)</Label>
+                    {isEditing ? (
+                      <Input
+                        id="max_size"
+                        type="number"
+                        value={bylawForm.detached_adu_max_size_sqft || ''}
+                        onChange={(e) => updateBylawForm('detached_adu_max_size_sqft', parseInt(e.target.value))}
+                      />
+                    ) : (
+                      <div className="p-2 bg-muted rounded-md">
+                        {data?.bylaw_data?.detached_adu_max_size_sqft ? `${data.bylaw_data.detached_adu_max_size_sqft} sq ft` : 'Not specified'}
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="max_height">Maximum Height (ft)</Label>
+                    {isEditing ? (
+                      <Input
+                        id="max_height"
+                        type="number"
+                        step="0.1"
+                        value={bylawForm.detached_adu_max_height_ft || ''}
+                        onChange={(e) => updateBylawForm('detached_adu_max_height_ft', parseFloat(e.target.value))}
+                      />
+                    ) : (
+                      <div className="p-2 bg-muted rounded-md">
+                        {data?.bylaw_data?.detached_adu_max_height_ft ? `${data.bylaw_data.detached_adu_max_height_ft} ft` : 'Not specified'}
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="max_coverage">Max Lot Coverage (%)</Label>
+                    {isEditing ? (
+                      <Input
+                        id="max_coverage"
+                        type="number"
+                        step="0.1"
+                        max="100"
+                        value={bylawForm.max_lot_coverage_percent || ''}
+                        onChange={(e) => updateBylawForm('max_lot_coverage_percent', parseFloat(e.target.value))}
+                      />
+                    ) : (
+                      <div className="p-2 bg-muted rounded-md">
+                        {data?.bylaw_data?.max_lot_coverage_percent ? `${data.bylaw_data.max_lot_coverage_percent}%` : 'Not specified'}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Parking Requirements */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Parking Requirements</h3>
+                <div className="space-y-2">
+                  <Label htmlFor="parking_spaces">Parking Spaces Required</Label>
+                  {isEditing ? (
+                    <Input
+                      id="parking_spaces"
+                      type="number"
+                      min="0"
+                      value={bylawForm.adu_parking_spaces_required || 1}
+                      onChange={(e) => updateBylawForm('adu_parking_spaces_required', parseInt(e.target.value))}
+                    />
+                  ) : (
+                    <div className="p-2 bg-muted rounded-md">
+                      {data?.bylaw_data?.adu_parking_spaces_required ?? 'Not specified'} spaces
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Additional Notes */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Additional Notes</h3>
+                {isEditing ? (
+                  <Textarea
+                    value={bylawForm.additional_notes || ''}
+                    onChange={(e) => updateBylawForm('additional_notes', e.target.value)}
+                    placeholder="Any additional requirements, exceptions, or clarifications..."
+                    rows={4}
+                  />
+                ) : (
+                  <div className="p-2 bg-muted rounded-md min-h-[100px]">
+                    {data?.bylaw_data?.additional_notes || 'No additional notes'}
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="settings" className="space-y-6">
+          {saveMessage && (
+            <div className={`p-3 rounded-lg flex items-center gap-2 ${
+              saveMessage.type === 'success' 
+                ? 'bg-green-50 border border-green-200 text-green-700 dark:bg-green-950/30 dark:border-green-800 dark:text-green-300' 
+                : 'bg-red-50 border border-red-200 text-red-700 dark:bg-red-950/30 dark:border-red-800 dark:text-red-300'
+            }`}>
+              {saveMessage.type === 'success' ? (
+                <CheckCircle className="h-4 w-4" />
+              ) : (
+                <AlertCircle className="h-4 w-4" />
+              )}
+              {saveMessage.text}
+            </div>
+          )}
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -449,23 +868,23 @@ export default function MunicipalityDetailPage() {
                 <div className="flex gap-2">
                   {isEditing ? (
                     <>
-                      <Button variant="outline" onClick={handleCancelSettings} disabled={settingsSaving}>
+                      <Button variant="outline" onClick={handleCancelEditing} disabled={saving}>
                         <X className="mr-2 h-4 w-4" />
                         Cancel
                       </Button>
-                      <Button onClick={handleSaveSettings} disabled={settingsSaving}>
-                        {settingsSaving ? (
+                      <Button onClick={handleSaveCombined} disabled={saving}>
+                        {saving ? (
                           <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
                         ) : (
                           <Save className="mr-2 h-4 w-4" />
                         )}
-                        Save Changes
+                        Save All Changes
                       </Button>
                     </>
                   ) : (
                     <Button onClick={() => setIsEditing(true)}>
                       <Edit className="mr-2 h-4 w-4" />
-                      Edit Settings
+                      Edit Municipality Data
                     </Button>
                   )}
                 </div>

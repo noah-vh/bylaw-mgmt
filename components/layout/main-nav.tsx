@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Building2, Search, FileText, Settings, Menu, HelpCircle, Zap, BarChart3, Cog, Home } from "lucide-react"
+import { Building2, Search, FileText, Settings, Menu, HelpCircle, Zap, BarChart3, Cog, Home, Calculator } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -58,6 +58,12 @@ const navigationItems = [
         description: "Browse documents by category",
       },
     ],
+  },
+  {
+    title: "Lot Configurator",
+    href: "/lot-configurator",
+    description: "Plan ADU placement and property layout",
+    icon: Calculator,
   },
 ]
 

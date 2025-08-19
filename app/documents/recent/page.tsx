@@ -11,18 +11,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { FileText, Calendar, Search, Filter, ExternalLink, Clock, TrendingUp, Star } from "lucide-react"
 import { useDocuments } from "@/hooks/use-documents"
 import { useMunicipalities } from "@/hooks/use-municipalities"
-import { useToggleDocumentFavorite } from "@/hooks/use-toggle-favorite"
+import { useToggleDocumentFavorite } from "@/hooks/use-documents"
 import { DocumentViewer } from "@/components/document-viewer"
 
-import type { PdfDocument } from "@/types/database"
-import { createMunicipalityId } from "@/types/database"
+import type { PdfDocument, DocumentId } from "@/types/database"
+import { createMunicipalityId, createDocumentId } from "@/types/database"
 
 export default function RecentDocumentsPage() {
   const [timeRange, setTimeRange] = useState<'24h' | '7d' | '30d'>('7d')
   const [searchQuery, setSearchQuery] = useState('')
   const [municipalityFilter, setMunicipalityFilter] = useState<string>('all')
   const [relevanceFilter, setRelevanceFilter] = useState<string>('all')
-  const [selectedDocument, setSelectedDocument] = useState<(PdfDocument & { municipality?: { name: string } }) | null>(null)
+  const [selectedDocument, setSelectedDocument] = useState<(PdfDocument & { municipality?: { id: number; name: string } }) | null>(null)
 
   // Calculate date range
   const getDateRange = () => {
@@ -99,16 +99,16 @@ export default function RecentDocumentsPage() {
   
   const handleOpenDocument = (document: PdfDocument) => {
     // Add municipality name to the document
-    const municipalityName = municipalitiesData?.data?.find(m => m.id === document.municipality_id)?.name
+    const municipality = municipalitiesData?.data?.find(m => m.id === document.municipality_id)
     setSelectedDocument({
       ...document,
-      municipality: municipalityName ? { name: municipalityName } : undefined
+      municipality: municipality ? { id: municipality.id, name: municipality.name } : undefined
     })
   }
   
   const handleToggleFavorite = async (documentId: number) => {
     try {
-      await toggleFavoriteMutation.mutateAsync(documentId)
+      await toggleFavoriteMutation.mutateAsync(createDocumentId(documentId))
       // Refetch to update the list
       refetch()
     } catch (error) {

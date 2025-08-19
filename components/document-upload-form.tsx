@@ -4,7 +4,7 @@ import React, { useState } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { Upload, FileText, AlertCircle, CheckCircle, Loader2 } from "lucide-react"
+import { Upload, FileText, AlertCircle, Loader2, X } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -18,12 +18,20 @@ import { Badge } from "@/components/ui/badge"
 // Form validation schema
 const uploadFormSchema = z.object({
   title: z.string().min(1, "Title is required").max(255, "Title is too long"),
-  municipality_id: z.number().min(1, "Please select a municipality"),
+  municipality_id: z.number({
+    required_error: "Please select a municipality",
+    invalid_type_error: "Please select a municipality"
+  }).min(1, "Please select a municipality"),
+  url: z.string().url("Please enter a valid URL").optional().or(z.literal("")),
   date_published: z.string().optional(),
   is_adu_relevant: z.boolean().optional().default(false),
   file: z.instanceof(File, { message: "Please select a PDF file" })
     .refine((file) => file.type === 'application/pdf', "Only PDF files are allowed")
     .refine((file) => file.size <= 50 * 1024 * 1024, "File size must be less than 50MB")
+    .optional()
+}).refine((data) => data.file || data.url, {
+  message: "Either a file upload or URL is required",
+  path: ["file"]
 })
 
 type UploadFormData = z.infer<typeof uploadFormSchema>
@@ -40,7 +48,6 @@ interface DocumentUploadFormProps {
 }
 
 export function DocumentUploadForm({ municipalities, onUploadSuccess, onCancel }: DocumentUploadFormProps) {
-  const [isDragOver, setIsDragOver] = useState(false)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [isUploading, setIsUploading] = useState(false)
 
@@ -54,63 +61,54 @@ export function DocumentUploadForm({ municipalities, onUploadSuccess, onCancel }
   } = useForm({
     resolver: zodResolver(uploadFormSchema),
     defaultValues: {
-      is_adu_relevant: false
+      is_adu_relevant: false,
+      municipality_id: 0, // Initialize with 0 instead of undefined
+      url: '',
+      title: '',
+      date_published: ''
     }
   })
 
   const watchedValues = watch()
 
-  const handleFileSelect = (file: File) => {
-    if (file.type !== 'application/pdf') {
-      toast.error("Only PDF files are allowed")
-      return
-    }
-    
-    if (file.size > 50 * 1024 * 1024) {
-      toast.error("File size must be less than 50MB")
-      return
-    }
-
-    setSelectedFile(file)
-    setValue('file', file)
-    
-    // Auto-populate title from filename if not already set
-    if (!watchedValues.title) {
-      const titleFromFilename = file.name.replace(/\.pdf$/i, '').replace(/[_-]/g, ' ')
-      setValue('title', titleFromFilename)
-    }
-  }
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragOver(true)
-  }
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragOver(false)
-  }
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragOver(false)
-    
-    const files = Array.from(e.dataTransfer.files)
-    if (files.length > 0) {
-      handleFileSelect(files[0])
-    }
-  }
-
-  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (files && files.length > 0) {
-      handleFileSelect(files[0])
+      const file = files[0]
+      
+      if (file.type !== 'application/pdf') {
+        toast.error("Only PDF files are allowed")
+        e.target.value = '' // Reset input
+        return
+      }
+      
+      if (file.size > 50 * 1024 * 1024) {
+        toast.error("File size must be less than 50MB")
+        e.target.value = '' // Reset input
+        return
+      }
+
+      setSelectedFile(file)
+      setValue('file', file)
+      
+      // Auto-populate title from filename if not already set
+      if (!watchedValues.title) {
+        const titleFromFilename = file.name.replace(/\.pdf$/i, '').replace(/[_-]/g, ' ')
+        setValue('title', titleFromFilename)
+      }
     }
   }
 
   const onSubmit = async (data: any) => {
-    if (!selectedFile) {
-      toast.error("Please select a file")
+    console.log('Form data:', data) // Debug log
+    
+    if (!selectedFile && !data.url) {
+      toast.error("Please select a file or enter a URL")
+      return
+    }
+
+    if (!data.municipality_id) {
+      toast.error("Please select a municipality")
       return
     }
 
@@ -118,10 +116,24 @@ export function DocumentUploadForm({ municipalities, onUploadSuccess, onCancel }
 
     try {
       const formData = new FormData()
-      formData.append('file', selectedFile)
+      if (selectedFile) {
+        formData.append('file', selectedFile)
+      }
       formData.append('title', data.title)
-      formData.append('municipality_id', data.municipality_id.toString())
-      formData.append('is_adu_relevant', data.is_adu_relevant.toString())
+      // Make sure municipality_id is properly set
+      const municipalityId = data.municipality_id
+      console.log('Municipality ID being sent:', municipalityId)
+      if (!municipalityId || municipalityId === 0) {
+        toast.error('Please select a valid municipality')
+        setIsUploading(false)
+        return
+      }
+      formData.append('municipality_id', municipalityId.toString())
+      formData.append('is_adu_relevant', (data.is_adu_relevant || false).toString())
+      
+      if (data.url) {
+        formData.append('url', data.url)
+      }
       
       if (data.date_published) {
         formData.append('date_published', data.date_published)
@@ -135,14 +147,42 @@ export function DocumentUploadForm({ municipalities, onUploadSuccess, onCancel }
       const result = await response.json()
 
       if (!response.ok) {
-        throw new Error(result.error || 'Upload failed')
+        console.error('Upload failed with status:', response.status)
+        console.error('Upload failed result:', result)
+        
+        // Handle different error formats
+        let errorMessage = 'Upload failed'
+        
+        // First check for error field
+        if (result.error) {
+          errorMessage = result.error
+        }
+        // Then check for details field  
+        else if (result.details) {
+          if (typeof result.details === 'string') {
+            errorMessage = `${result.error || 'Error'}: ${result.details}`
+          } else if (result.details._errors) {
+            errorMessage = result.details._errors.join(', ')
+          } else {
+            errorMessage = JSON.stringify(result.details)
+          }
+        }
+        // If we still have generic message, add status code
+        if (errorMessage === 'Upload failed') {
+          errorMessage = `Upload failed (${response.status})`
+        }
+        
+        throw new Error(errorMessage)
       }
 
-      toast.success("Document uploaded successfully!")
+      toast.success("Document added successfully!")
       
       // Reset form
       reset()
       setSelectedFile(null)
+      // Reset file input
+      const fileInput = document.getElementById('file-upload-hidden') as HTMLInputElement
+      if (fileInput) fileInput.value = ''
       
       // Call success callback
       if (onUploadSuccess) {
@@ -150,8 +190,12 @@ export function DocumentUploadForm({ municipalities, onUploadSuccess, onCancel }
       }
 
     } catch (error) {
-      console.error('Upload error:', error)
-      toast.error(error instanceof Error ? error.message : 'Upload failed')
+      console.error('Upload error caught:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Upload failed'
+      toast.error(errorMessage, {
+        duration: 5000,
+        description: 'Check the console for more details'
+      })
     } finally {
       setIsUploading(false)
     }
@@ -166,181 +210,173 @@ export function DocumentUploadForm({ municipalities, onUploadSuccess, onCancel }
   }
 
   return (
-    <Card className="w-full max-w-2xl mx-auto">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Upload className="h-5 w-5" />
-          Upload Bylaw Document
-        </CardTitle>
-        <CardDescription>
-          Upload a PDF document and provide metadata for your municipal bylaw collection
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-          {/* File Upload Area */}
-          <div className="space-y-2">
-            <Label>PDF File</Label>
-            <div
-              className={`
-                border-2 border-dashed rounded-lg p-8 text-center transition-colors
-                ${isDragOver ? 'border-primary bg-primary/5' : 'border-gray-300'}
-                ${selectedFile ? 'border-green-500 bg-green-50' : ''}
-              `}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-            >
-              {selectedFile ? (
-                <div className="space-y-2">
-                  <CheckCircle className="h-12 w-12 text-green-500 mx-auto" />
-                  <div className="flex items-center justify-center gap-2">
-                    <FileText className="h-4 w-4" />
-                    <span className="font-medium">{selectedFile.name}</span>
-                  </div>
-                  <p className="text-sm text-gray-500">
-                    Size: {formatFileSize(selectedFile.size)}
-                  </p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setSelectedFile(null)
-                      setValue('file', undefined as any)
-                    }}
-                  >
-                    Remove File
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <Upload className="h-12 w-12 text-gray-400 mx-auto" />
-                  <div>
-                    <p className="text-lg font-medium">Drop your PDF here</p>
-                    <p className="text-sm text-gray-500">or click to browse</p>
-                  </div>
-                  <input
-                    type="file"
-                    accept=".pdf"
-                    onChange={handleFileInputChange}
-                    className="hidden"
-                    id="file-upload"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => document.getElementById('file-upload')?.click()}
-                  >
-                    Choose File
-                  </Button>
-                </div>
-              )}
-            </div>
-            {errors.file && (
-              <p className="text-sm text-red-600 flex items-center gap-1">
-                <AlertCircle className="h-4 w-4" />
-                {errors.file.message}
-              </p>
-            )}
-          </div>
+    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      {/* Title Field */}
+      <div className="space-y-2">
+        <Label htmlFor="title">Document Title *</Label>
+        <Input
+          id="title"
+          {...register('title')}
+          placeholder="e.g., Accessory Dwelling Unit Bylaw 2024"
+        />
+        {errors.title && (
+          <p className="text-sm text-red-600 flex items-center gap-1">
+            <AlertCircle className="h-4 w-4" />
+            {errors.title.message}
+          </p>
+        )}
+      </div>
 
-          {/* Title Field */}
-          <div className="space-y-2">
-            <Label htmlFor="title">Document Title *</Label>
-            <Input
-              id="title"
-              {...register('title')}
-              placeholder="e.g., Accessory Dwelling Unit Bylaw 2024"
-            />
-            {errors.title && (
-              <p className="text-sm text-red-600 flex items-center gap-1">
-                <AlertCircle className="h-4 w-4" />
-                {errors.title.message}
-              </p>
-            )}
-          </div>
+      {/* Municipality Selection */}
+      <div className="space-y-2">
+        <Label>Municipality *</Label>
+        <Select 
+          onValueChange={(value) => {
+            const numValue = parseInt(value)
+            console.log('Municipality selected:', numValue) // Debug log
+            setValue('municipality_id', numValue, { shouldValidate: true })
+          }}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Select a municipality" />
+          </SelectTrigger>
+          <SelectContent>
+            {municipalities.map((municipality) => (
+              <SelectItem key={municipality.id} value={municipality.id.toString()}>
+                {municipality.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {errors.municipality_id && (
+          <p className="text-sm text-red-600 flex items-center gap-1">
+            <AlertCircle className="h-4 w-4" />
+            {errors.municipality_id.message}
+          </p>
+        )}
+      </div>
 
-          {/* Municipality Selection */}
-          <div className="space-y-2">
-            <Label>Municipality *</Label>
-            <Select onValueChange={(value) => setValue('municipality_id', parseInt(value))}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select a municipality" />
-              </SelectTrigger>
-              <SelectContent>
-                {municipalities.map((municipality) => (
-                  <SelectItem key={municipality.id} value={municipality.id.toString()}>
-                    {municipality.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {errors.municipality_id && (
-              <p className="text-sm text-red-600 flex items-center gap-1">
-                <AlertCircle className="h-4 w-4" />
-                {errors.municipality_id.message}
-              </p>
-            )}
-          </div>
-
-          {/* Date Published */}
-          <div className="space-y-2">
-            <Label htmlFor="date_published">Date Published (Optional)</Label>
-            <Input
-              id="date_published"
-              type="date"
-              {...register('date_published')}
-            />
-          </div>
-
-          {/* ADU Relevant Checkbox */}
-          <div className="flex items-center space-x-2">
-            <Checkbox
-              id="is_adu_relevant"
-              checked={watchedValues.is_adu_relevant}
-              onCheckedChange={(checked) => setValue('is_adu_relevant', !!checked)}
-            />
-            <Label htmlFor="is_adu_relevant" className="flex items-center gap-2">
-              Mark as ADU Relevant
-              <Badge variant="secondary" className="text-xs">
-                Optional
-              </Badge>
-            </Label>
-          </div>
-
-          {/* Form Actions */}
-          <div className="flex gap-3 pt-4">
+      {/* URL and File Upload - Side by Side */}
+      <div className="space-y-2">
+        <Label htmlFor="url">Document URL or File *</Label>
+        <div className="flex gap-2">
+          <Input
+            id="url"
+            type="url"
+            {...register('url')}
+            placeholder="https://example.com/bylaws/document.pdf"
+            className="flex-1"
+          />
+          <input
+            id="file-upload-hidden"
+            type="file"
+            accept=".pdf"
+            onChange={handleFileSelect}
+            className="hidden"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => document.getElementById('file-upload-hidden')?.click()}
+            className="px-3"
+          >
+            <Upload className="h-4 w-4 mr-2" />
+            Upload PDF
+          </Button>
+        </div>
+        {errors.url && (
+          <p className="text-sm text-red-600 flex items-center gap-1">
+            <AlertCircle className="h-4 w-4" />
+            {errors.url.message}
+          </p>
+        )}
+        {errors.file && (
+          <p className="text-sm text-red-600 flex items-center gap-1">
+            <AlertCircle className="h-4 w-4" />
+            {errors.file.message}
+          </p>
+        )}
+        {selectedFile && (
+          <div className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded text-sm">
+            <FileText className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+            <span className="flex-1 truncate">{selectedFile.name}</span>
+            <span className="text-gray-500">({formatFileSize(selectedFile.size)})</span>
             <Button
-              type="submit"
-              disabled={isUploading || !selectedFile}
-              className="flex-1"
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setSelectedFile(null)
+                setValue('file', undefined as any)
+                const fileInput = document.getElementById('file-upload-hidden') as HTMLInputElement
+                if (fileInput) fileInput.value = ''
+              }}
+              className="h-6 w-6 p-0"
             >
-              {isUploading ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Uploading...
-                </>
-              ) : (
-                <>
-                  <Upload className="h-4 w-4 mr-2" />
-                  Upload Document
-                </>
-              )}
+              <X className="h-4 w-4" />
             </Button>
-            {onCancel && (
-              <Button
-                type="button"
-                variant="outline"
-                onClick={onCancel}
-                disabled={isUploading}
-              >
-                Cancel
-              </Button>
-            )}
           </div>
-        </form>
-      </CardContent>
-    </Card>
+        )}
+        <p className="text-sm text-gray-500">
+          Enter a URL or upload a PDF file (at least one required)
+        </p>
+      </div>
+
+      {/* Date Published */}
+      <div className="space-y-2">
+        <Label htmlFor="date_published">Date Published (Optional)</Label>
+        <Input
+          id="date_published"
+          type="date"
+          {...register('date_published')}
+        />
+      </div>
+
+      {/* ADU Relevant Checkbox */}
+      <div className="flex items-center space-x-2">
+        <Checkbox
+          id="is_adu_relevant"
+          checked={watchedValues.is_adu_relevant}
+          onCheckedChange={(checked) => setValue('is_adu_relevant', !!checked)}
+        />
+        <Label htmlFor="is_adu_relevant" className="flex items-center gap-2 cursor-pointer">
+          Mark as ADU Relevant
+          <Badge variant="secondary" className="text-xs">
+            Optional
+          </Badge>
+        </Label>
+      </div>
+
+      {/* Form Actions */}
+      <div className="flex gap-3 pt-4">
+        <Button
+          type="submit"
+          disabled={isUploading}
+          className="flex-1"
+        >
+          {isUploading ? (
+            <>
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              Adding Document...
+            </>
+          ) : (
+            <>
+              <Upload className="h-4 w-4 mr-2" />
+              Add Document
+            </>
+          )}
+        </Button>
+        {onCancel && (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onCancel}
+            disabled={isUploading}
+          >
+            Cancel
+          </Button>
+        )}
+      </div>
+    </form>
   )
 }

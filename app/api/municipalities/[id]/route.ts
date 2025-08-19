@@ -20,13 +20,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }
 
 
-    // Get municipality details with document count using JOIN
+    // Get municipality details
     const { data: municipality, error: muniError } = await supabase
       .from('municipalities')
-      .select(`
-        *,
-        pdf_documents(count)
-      `)
+      .select('*')
       .eq('id', municipalityId)
       .single()
 
@@ -70,8 +67,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       .order('scrape_date', { ascending: false })
       .limit(50)
 
-    // Get correct total document count from JOIN result
-    const totalDocuments = municipality.pdf_documents?.[0]?.count || 0
+    // Get total document count with a separate query
+    const { count: totalDocuments, error: countError } = await supabase
+      .from('pdf_documents')
+      .select('*', { count: 'exact', head: true })
+      .eq('municipality_id', municipalityId)
     
     // Calculate statistics for displayed documents (limited to 100)
     const relevantDocuments = documents?.filter(doc => doc.is_relevant).length || 0
@@ -93,14 +93,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       data: {
         municipality: {
           ...municipality,
-          totalDocuments,
+          totalDocuments: totalDocuments || 0,
           relevantDocuments,
-          // Remove the nested data to clean up response
-          pdf_documents: undefined
         },
         documents: documents || [],
         stats: {
-          totalDocuments,
+          totalDocuments: totalDocuments || 0,
           relevantDocuments,
           analyzedDocuments,
           lastScrapeDate: latestScrape?.scrape_date || null,
