@@ -8,9 +8,11 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { FileText, Calendar, Search, Filter, ExternalLink, Clock, TrendingUp } from "lucide-react"
+import { FileText, Calendar, Search, Filter, ExternalLink, Clock, TrendingUp, Star } from "lucide-react"
 import { useDocuments } from "@/hooks/use-documents"
 import { useMunicipalities } from "@/hooks/use-municipalities"
+import { useToggleDocumentFavorite } from "@/hooks/use-toggle-favorite"
+import { DocumentViewer } from "@/components/document-viewer"
 
 import type { PdfDocument } from "@/types/database"
 import { createMunicipalityId } from "@/types/database"
@@ -20,6 +22,7 @@ export default function RecentDocumentsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [municipalityFilter, setMunicipalityFilter] = useState<string>('all')
   const [relevanceFilter, setRelevanceFilter] = useState<string>('all')
+  const [selectedDocument, setSelectedDocument] = useState<(PdfDocument & { municipality?: { name: string } }) | null>(null)
 
   // Calculate date range
   const getDateRange = () => {
@@ -32,6 +35,9 @@ export default function RecentDocumentsPage() {
     return ranges[timeRange]
   }
 
+  // Calculate date range based on selected time range
+  const dateFrom = getDateRange().toISOString()
+  
   const {
     data,
     isLoading: loading,
@@ -43,7 +49,8 @@ export default function RecentDocumentsPage() {
     isAduRelevant: relevanceFilter === 'relevant' ? true : relevanceFilter === 'not-relevant' ? false : undefined,
     sort: 'date_found',
     order: 'desc',
-    limit: 20
+    limit: 20,
+    dateFrom
   })
   
   const documents = data?.data || []
@@ -51,11 +58,8 @@ export default function RecentDocumentsPage() {
   
   const { data: municipalitiesData } = useMunicipalities({ limit: 100 })
 
-  // Filter documents by date range
-  const recentDocuments = documents?.filter(doc => {
-    const docDate = new Date(doc.date_found)
-    return docDate >= getDateRange()
-  }) || []
+  // Documents are already filtered by date on the server side, so we can use them directly
+  const recentDocuments = documents || []
 
   const formatFileSize = (bytes: number) => {
     if (bytes === 0) return '0 Bytes'
@@ -90,6 +94,27 @@ export default function RecentDocumentsPage() {
   }
 
   const stats = getTimeRangeStats()
+  
+  const toggleFavoriteMutation = useToggleDocumentFavorite()
+  
+  const handleOpenDocument = (document: PdfDocument) => {
+    // Add municipality name to the document
+    const municipalityName = municipalitiesData?.data?.find(m => m.id === document.municipality_id)?.name
+    setSelectedDocument({
+      ...document,
+      municipality: municipalityName ? { name: municipalityName } : undefined
+    })
+  }
+  
+  const handleToggleFavorite = async (documentId: number) => {
+    try {
+      await toggleFavoriteMutation.mutateAsync(documentId)
+      // Refetch to update the list
+      refetch()
+    } catch (error) {
+      console.error('Failed to toggle favorite:', error)
+    }
+  }
 
   return (
     <div className="container mx-auto py-6">
@@ -268,66 +293,93 @@ export default function RecentDocumentsPage() {
             </Card>
           ) : (
             <div className="space-y-4">
-              {recentDocuments.map((document) => (
-                <Card key={document.id} className="hover:shadow-md transition-shadow">
-                  <CardContent className="p-6">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1 space-y-2">
-                        <div className="flex items-center space-x-2">
-                          <FileText className="h-4 w-4 text-muted-foreground" />
-                          <h3 className="font-semibold text-lg leading-tight">
-                            {document.title || document.filename}
-                          </h3>
-                        </div>
-                        
-                        <div className="flex items-center space-x-4 text-sm text-muted-foreground">
-                          <span>
-                            <Link 
-                              href={`/municipalities/${document.municipality_id}`}
-                              className="hover:underline"
-                            >
-                              {document.municipality_name}
-                            </Link>
-                          </span>
-                          <span>•</span>
-                          <span>{formatDate(document.date_found)}</span>
-                          <span>•</span>
-                          <span>{formatFileSize(document.file_size || 0)}</span>
-                        </div>
+              {recentDocuments.map((document) => {
+                const municipalityName = municipalitiesData?.data?.find(m => m.id === document.municipality_id)?.name
+                
+                return (
+                  <Card 
+                    key={document.id} 
+                    className="hover:shadow-md transition-shadow cursor-pointer"
+                    onClick={() => handleOpenDocument(document)}
+                  >
+                    <CardContent className="p-6">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1 space-y-2">
+                          <div className="flex items-center space-x-2">
+                            <FileText className="h-4 w-4 text-muted-foreground" />
+                            <h3 className="font-semibold text-lg leading-tight hover:text-primary transition-colors">
+                              {document.title || document.filename}
+                            </h3>
+                          </div>
+                          
+                          <div className="flex items-center space-x-4 text-sm text-muted-foreground">
+                            <span>
+                              <Link 
+                                href={`/municipalities/${document.municipality_id}`}
+                                className="hover:underline"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {municipalityName || 'Unknown'}
+                              </Link>
+                            </span>
+                            <span>•</span>
+                            <span>{formatDate(document.date_found)}</span>
+                            <span>•</span>
+                            <span>{formatFileSize(document.file_size || 0)}</span>
+                          </div>
 
-                        <div className="flex items-center space-x-2">
-                          {document.is_relevant && (
-                            <Badge variant="default">Relevant</Badge>
-                          )}
+                          <div className="flex items-center space-x-2">
+                            {document.is_relevant && (
+                              <Badge variant="default">Relevant</Badge>
+                            )}
+                            {document.content_text && (
+                              <Badge variant="secondary">Extracted</Badge>
+                            )}
+                            {!document.content_text && (
+                              <Badge variant="outline">Pending</Badge>
+                            )}
+                            {document.is_favorited && (
+                              <Badge variant="outline" className="flex items-center gap-1">
+                                <Star className="h-3 w-3 fill-current" />
+                                Favorited
+                              </Badge>
+                            )}
+                          </div>
+
                           {document.content_text && (
-                            <Badge variant="secondary">Extracted</Badge>
-                          )}
-                          {!document.content_text && (
-                            <Badge variant="outline">Pending</Badge>
+                            <p className="text-sm text-muted-foreground line-clamp-2">
+                              {document.content_text.substring(0, 200)}...
+                            </p>
                           )}
                         </div>
 
-                        <p className="text-sm text-muted-foreground">
-                          {document.filename}
-                        </p>
+                        <div className="flex items-center space-x-2 ml-4">
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleToggleFavorite(document.id)
+                            }}
+                          >
+                            <Star className={`h-4 w-4 ${document.is_favorited ? 'fill-current' : ''}`} />
+                          </Button>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            asChild
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <a href={document.url} target="_blank" rel="noopener noreferrer">
+                              <ExternalLink className="h-4 w-4" />
+                            </a>
+                          </Button>
+                        </div>
                       </div>
-
-                      <div className="flex items-center space-x-2 ml-4">
-                        <Button variant="outline" size="sm" asChild>
-                          <Link href={`/documents/${document.id}`}>
-                            View Details
-                          </Link>
-                        </Button>
-                        <Button variant="outline" size="sm" asChild>
-                          <a href={document.url} target="_blank" rel="noopener noreferrer">
-                            <ExternalLink className="h-4 w-4" />
-                          </a>
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    </CardContent>
+                  </Card>
+                )
+              })}
 
               {recentDocuments.length > 0 && (
                 <div className="flex justify-center">
@@ -342,6 +394,16 @@ export default function RecentDocumentsPage() {
           )}
         </TabsContent>
       </Tabs>
+      
+      {/* Document Viewer Modal */}
+      {selectedDocument && (
+        <DocumentViewer
+          document={selectedDocument}
+          open={!!selectedDocument}
+          onOpenChange={(open) => !open && setSelectedDocument(null)}
+          onToggleFavorite={handleToggleFavorite}
+        />
+      )}
     </div>
   )
 }

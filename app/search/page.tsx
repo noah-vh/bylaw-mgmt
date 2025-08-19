@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, Suspense } from "react"
+import React, { useState, useEffect, Suspense } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { 
   Search, 
@@ -166,22 +166,45 @@ function SearchPageContent() {
   // No need for client-side filtering anymore - it's done on the server
   const searchDocuments = allDocuments
   
-  // Calculate filtered total results
+  // Calculate filtered total results and overall total
   const hasActiveFilters = municipalityIds.length > 0 || isRelevantOnly || isAnalyzedOnly
+  
+  // Calculate total documents across all municipalities (for "All" button when not searching)
+  const overallTotalDocuments = React.useMemo(() => {
+    if (municipalitiesData?.data) {
+      return municipalitiesData.data.reduce((sum: number, municipality: any) => {
+        return sum + (municipality.totalDocuments || 0)
+      }, 0)
+    }
+    return 0
+  }, [municipalitiesData])
+  
   const filteredTotalResults = (() => {
-    // First priority: Use municipality counts if available
-    if (municipalityCounts.length > 0) {
+    // When searching, use municipality counts from search results
+    if (query && municipalityCounts.length > 0) {
       if (municipalityIds.length > 0) {
         // Filter by selected municipalities
         return municipalityCounts
           .filter((mc: any) => municipalityIds.includes(mc.municipality_id))
           .reduce((sum: number, mc: any) => sum + (mc.document_count || 0), 0)
       } else {
-        // No filter, sum all municipalities
+        // No municipality filter, sum all search results
         return municipalityCounts.reduce((sum: number, mc: any) => sum + (mc.document_count || 0), 0)
       }
     }
-    // Fallback: Use totalDocuments from API
+    // When not searching, use overall total from municipalities data
+    else if (!query && overallTotalDocuments > 0) {
+      if (municipalityIds.length > 0) {
+        // Filter by selected municipalities
+        return municipalitiesData?.data
+          ?.filter((municipality: any) => municipalityIds.includes(municipality.id))
+          .reduce((sum: number, municipality: any) => sum + (municipality.totalDocuments || 0), 0) || 0
+      } else {
+        // No filter, use overall total
+        return overallTotalDocuments
+      }
+    }
+    // Fallback: Use totalDocuments from search API
     else if (totalDocuments > 0) {
       return totalDocuments
     }
@@ -195,26 +218,17 @@ function SearchPageContent() {
     console.log('Current municipality filters:', municipalityIds)
     console.log('Documents returned:', searchDocuments.length)
     console.log('Total documents from API:', totalDocuments)
+    console.log('Overall total documents (from municipalities):', overallTotalDocuments)
     console.log('Has results:', hasResults)
     console.log('Query:', query)
     console.log('Municipality counts:', municipalityCounts)
     console.log('Municipality counts length:', municipalityCounts.length)
     console.log('Filtered total results calculated:', filteredTotalResults)
-    if (searchDocuments.length > 0) {
-      console.log('Sample document municipality_id:', searchDocuments[0].municipality_id)
-    }
-    if (municipalityCounts.length > 0) {
-      console.log('Sample municipality count:', municipalityCounts[0])
-      // Check if we're filtering and what the count should be
-      if (municipalityIds.length > 0) {
-        const filteredCounts = municipalityCounts.filter((mc: any) => municipalityIds.includes(mc.municipality_id))
-        console.log('Filtered municipality counts:', filteredCounts)
-        const sum = filteredCounts.reduce((sum: number, mc: any) => sum + (mc.document_count || 0), 0)
-        console.log('Sum of filtered counts should be:', sum)
-      }
+    if (municipalitiesData?.data) {
+      console.log('Municipalities data sample:', municipalitiesData.data.slice(0, 2))
     }
     console.log('=== END DEBUG ===')
-  }, [municipalityIds, searchDocuments, totalDocuments, hasResults, query, municipalityCounts, filteredTotalResults])
+  }, [municipalityIds, searchDocuments, totalDocuments, overallTotalDocuments, hasResults, query, municipalityCounts, filteredTotalResults, municipalitiesData])
 
   const clearFilters = () => {
     updateMunicipalityIds([])
@@ -343,6 +357,11 @@ function SearchPageContent() {
               className="h-8"
             >
               All
+              {municipalityIds.length === 0 && filteredTotalResults > 0 && (
+                <Badge variant="secondary" className="ml-1 text-[10px] px-1 py-0 h-4">
+                  {filteredTotalResults}
+                </Badge>
+              )}
             </Button>
             {municipalitiesData?.data
               ? [...municipalitiesData.data].sort((a, b) => {
@@ -368,7 +387,9 @@ function SearchPageContent() {
                 return a.name.localeCompare(b.name)
               }).slice(0, 5).map((municipality) => {
               const isSelected = municipalityIds.includes(municipality.id)
-              const count = municipalityCounts.find((mc: any) => mc.municipality_id === municipality.id)?.document_count
+              // Get count from search results when searching, otherwise use total documents
+              const searchCount = municipalityCounts.find((mc: any) => mc.municipality_id === municipality.id)?.document_count
+              const docCount = query ? (searchCount || 0) : (municipality.totalDocuments || 0)
               
               return (
                 <Button
@@ -387,13 +408,16 @@ function SearchPageContent() {
                   className="h-8 flex items-center gap-1"
                 >
                   {municipality.name}
-                  {query && count !== undefined && count > 0 && (
+                  {docCount > 0 && (
                     <Badge 
                       variant={isSelected ? "secondary" : "outline"} 
                       className="ml-1 h-5 px-1 text-xs"
-                      title={`${count} document${count !== 1 ? 's' : ''} matching "${query}"`}
+                      title={query 
+                        ? `${docCount} document${docCount !== 1 ? 's' : ''} matching "${query}"`
+                        : `${docCount} total document${docCount !== 1 ? 's' : ''}`
+                      }
                     >
-                      {count}
+                      {docCount}
                     </Badge>
                   )}
                 </Button>
@@ -435,7 +459,9 @@ function SearchPageContent() {
                   return a.name.localeCompare(b.name)
                 }).slice(5).map((municipality) => {
                 const isSelected = municipalityIds.includes(municipality.id)
-                const count = municipalityCounts.find((mc: any) => mc.municipality_id === municipality.id)?.document_count
+                // Get count from search results when searching, otherwise use total documents
+                const searchCount = municipalityCounts.find((mc: any) => mc.municipality_id === municipality.id)?.document_count
+                const docCount = query ? (searchCount || 0) : (municipality.totalDocuments || 0)
                 
                 return (
                   <Button
@@ -454,13 +480,16 @@ function SearchPageContent() {
                     className="h-8 flex items-center gap-1"
                   >
                     {municipality.name}
-                    {query && count !== undefined && count > 0 && (
+                    {docCount > 0 && (
                       <Badge 
                         variant={isSelected ? "secondary" : "outline"} 
                         className="ml-1 h-5 px-1 text-xs"
-                        title={`${count} document${count !== 1 ? 's' : ''} matching "${query}"`}
+                        title={query 
+                          ? `${docCount} document${docCount !== 1 ? 's' : ''} matching "${query}"`
+                          : `${docCount} total document${docCount !== 1 ? 's' : ''}`
+                        }
                       >
-                        {count}
+                        {docCount}
                       </Badge>
                     )}
                   </Button>

@@ -151,6 +151,19 @@ function DocumentsPageContent() {
     selectedMunicipalities
   )
   
+  // Load municipalities for the filter dropdown
+  const { data: municipalitiesData } = useMunicipalities({ limit: 100 })
+  
+  // Calculate total documents across all municipalities (for "All" button when not searching)
+  const overallTotalDocuments = React.useMemo(() => {
+    if (municipalitiesData?.data) {
+      return municipalitiesData.data.reduce((sum: number, municipality: any) => {
+        return sum + (municipality.totalDocuments || 0)
+      }, 0)
+    }
+    return 0
+  }, [municipalitiesData])
+
   // Determine which data source to use
   const isSearching = searchInput.trim().length >= 2
   const data = isSearching ? globalSearch.data : documentSearch.data
@@ -160,16 +173,13 @@ function DocumentsPageContent() {
   const municipalityCounts = isSearching ? globalSearch.municipalityCounts : []
   const totalDocuments = isSearching 
     ? globalSearch.totalDocuments 
-    : (documentSearch.data?.pagination?.total || 0)
+    : (selectedMunicipalities.length === 0 ? overallTotalDocuments : (documentSearch.data?.pagination?.total || 0))
   const hasNextPage = isSearching 
     ? globalSearch.hasNextPage 
     : (documentSearch.data?.pagination?.hasNextPage || false)
   const hasPrevPage = isSearching 
     ? globalSearch.hasPrevPage 
     : (documentSearch.data?.pagination?.hasPrevPage || false)
-
-  // Load municipalities for the filter dropdown
-  const { data: municipalitiesData } = useMunicipalities({ limit: 100 })
   
   // Update search when input changes
   React.useEffect(() => {
