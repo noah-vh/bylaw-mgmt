@@ -97,8 +97,11 @@ async function fetchGlobalSearch(
     totalDocuments: result.meta?.pagination?.documentsTotal || 0,
     hasMore: result.meta?.pagination?.hasMore || false,
     municipalitiesCount: result.results?.municipalities?.length || 0,
-    totalResults: result.meta?.total || 0
+    totalResults: result.meta?.total || 0,
+    queryUsed: result.query,
+    actualDocuments: result.results?.documents || []
   })
+  console.log('Full API Response:', result)
   console.log('=== END FETCH GLOBAL SEARCH ===')
   
   return result

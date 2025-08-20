@@ -41,8 +41,8 @@ export async function GET(request: NextRequest) {
     
     const { q: query, types, limit, offset, municipalityIds: rawMunicipalityIds } = validation.data
     
-    // Treat empty array as no filter (show all municipalities)
-    const municipalityIds = rawMunicipalityIds && rawMunicipalityIds.length > 0 ? rawMunicipalityIds : undefined
+    // When no municipalities are selected (empty array), pass null to search all municipalities
+    const municipalityIds = rawMunicipalityIds && rawMunicipalityIds.length > 0 ? rawMunicipalityIds : null
 
     const results = {
       documents: [] as any[],
@@ -91,16 +91,98 @@ export async function GET(request: NextRequest) {
       const searchPromise = (async () => {
         try {
           // Try optimized search first if available
-          // Important: Pass null (not empty array) when no municipality filter is applied
-          // The DB function expects null to mean "all municipalities"
+          console.log('Calling search_documents_optimized with:', {
+            search_query: query,
+            max_results: limit,
+            result_offset: offset,
+            filter_municipality_ids: municipalityIds,
+            municipalityIds_length: municipalityIds ? municipalityIds.length : 'null (all municipalities)'
+          })
+          
           const { data: optimizedData, error: optimizedError } = await supabase.rpc('search_documents_optimized', {
             search_query: query,
             max_results: limit,
             result_offset: offset,
-            filter_municipality_ids: municipalityIds && municipalityIds.length > 0 ? municipalityIds : null
+            filter_municipality_ids: municipalityIds
           })
           
-          if (!optimizedError && optimizedData) {
+          if (optimizedError) {
+            console.error('Search error:', optimizedError)
+            
+            // If optimized search fails (likely timeout), try municipality-by-municipality search
+            if (optimizedError.code === '57014' && !municipalityIds) {
+              console.log('Timeout detected for all-municipality search, trying per-municipality search...')
+              
+              // Get all municipalities first
+              const { data: allMunicipalities } = await supabase
+                .from('municipalities')
+                .select('id, name')
+                .order('name')
+              
+              if (allMunicipalities && allMunicipalities.length > 0) {
+                console.log(`Searching ${allMunicipalities.length} municipalities individually...`)
+                
+                const allResults: any[] = []
+                const resultsPerMunicipality = Math.max(2, Math.floor(limit / allMunicipalities.length)) // Distribute results across ALL municipalities
+                
+                // Search ALL municipalities individually
+                const municipalitiesToSearch = allMunicipalities
+                
+                for (const municipality of municipalitiesToSearch) {
+                  try {
+                    const { data: municipalityResults } = await supabase.rpc('search_documents_optimized', {
+                      search_query: query,
+                      max_results: resultsPerMunicipality,
+                      result_offset: 0,
+                      filter_municipality_ids: [municipality.id]
+                    })
+                    
+                    if (municipalityResults && municipalityResults.length > 0) {
+                      // Add municipality name to each result
+                      const resultsWithMunicipality = municipalityResults.map((doc: any) => ({
+                        ...doc,
+                        municipality: { id: municipality.id, name: municipality.name }
+                      }))
+                      allResults.push(...resultsWithMunicipality)
+                    }
+                  } catch (municipalityError) {
+                    console.error(`Error searching municipality ${municipality.name}:`, municipalityError)
+                    // Continue with other municipalities
+                  }
+                  
+                  // Stop if we have enough results
+                  if (allResults.length >= limit) {
+                    break
+                  }
+                }
+                
+                // Sort all results by relevance and date
+                allResults.sort((a, b) => {
+                  // First by relevance
+                  if (a.is_relevant && !b.is_relevant) return -1
+                  if (!a.is_relevant && b.is_relevant) return 1
+                  // Then by date
+                  return new Date(b.date_found).getTime() - new Date(a.date_found).getTime()
+                })
+                
+                // Take only the requested number of results
+                const finalResults = allResults.slice(0, limit)
+                
+                results.documents = finalResults.map(doc => ({
+                  ...doc,
+                  is_relevant: doc.is_relevant,
+                  adu_category_score: doc.categories?.['ADU/ARU Regulations'] || 0,
+                  content_snippet: null, // Skip snippets for performance
+                  has_more: false
+                }))
+                
+                results.pagination.hasMore = allResults.length > limit
+                results.pagination.documentsTotal = -1 // Unknown total
+                
+                console.log(`Per-municipality search successful: ${finalResults.length} documents from ${allMunicipalities.length} municipalities`)
+              }
+            }
+          } else if (!optimizedError && optimizedData) {
             console.log('Using optimized search, returned', optimizedData.length, 'documents')
             console.log('Search query:', query)
             console.log('Limit:', limit)
@@ -196,6 +278,8 @@ export async function GET(request: NextRequest) {
                   name: municipalityMap[doc.municipality_id]
                 } : null
               }))
+              
+              console.log('Mapped documents to results.documents:', results.documents.length)
             }
             
             results.pagination.hasMore = hasMore
@@ -276,6 +360,13 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    console.log('Final API response summary:', {
+      query,
+      documentsReturned: results.documents.length,
+      municipalitiesReturned: results.municipalities.length,
+      totalResults: response.meta.total,
+      duration: response.meta.duration
+    })
 
     return NextResponse.json(response)
   } catch (error) {

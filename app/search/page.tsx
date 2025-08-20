@@ -155,6 +155,7 @@ function SearchPageContent() {
     }
   }, [initialQuery, query, search])
 
+
   const handleSearch = (searchQuery: string) => {
     search(searchQuery)
     // Update URL
@@ -215,20 +216,23 @@ function SearchPageContent() {
   // Debug logging (can be removed later)
   useEffect(() => {
     console.log('=== SEARCH PAGE DEBUG ===')
-    console.log('Current municipality filters:', municipalityIds)
+    console.log('Current municipality filters (UI):', municipalityIds)
     console.log('Documents returned:', searchDocuments.length)
+    console.log('All documents from hook:', allDocuments.length)
     console.log('Total documents from API:', totalDocuments)
     console.log('Overall total documents (from municipalities):', overallTotalDocuments)
     console.log('Has results:', hasResults)
     console.log('Query:', query)
+    console.log('Search loading:', searchLoading)
+    console.log('Search error:', searchError)
     console.log('Municipality counts:', municipalityCounts)
     console.log('Municipality counts length:', municipalityCounts.length)
     console.log('Filtered total results calculated:', filteredTotalResults)
     if (municipalitiesData?.data) {
-      console.log('Municipalities data sample:', municipalitiesData.data.slice(0, 2))
+      console.log('Total municipalities loaded:', municipalitiesData.data.length)
     }
     console.log('=== END DEBUG ===')
-  }, [municipalityIds, searchDocuments, totalDocuments, overallTotalDocuments, hasResults, query, municipalityCounts, filteredTotalResults, municipalitiesData])
+  }, [municipalityIds, searchDocuments, allDocuments, totalDocuments, overallTotalDocuments, hasResults, query, searchLoading, searchError, municipalityCounts, filteredTotalResults, municipalitiesData])
 
   const clearFilters = () => {
     updateMunicipalityIds([])
