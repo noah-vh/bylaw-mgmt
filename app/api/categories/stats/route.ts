@@ -50,9 +50,12 @@ export async function GET(request: NextRequest) {
       }
     })
     
-    const categoryStats = categoryNames.map(categoryName => ({
-      category: categoryName,
+    const categoryStats = categoryNames.map((categoryName, index) => ({
+      id: categoryName.toLowerCase().replace(/[^a-z0-9]/g, '-'), // Create ID from name
+      name: categoryName,
+      category: categoryName, // For backwards compatibility
       documentCount: categoryCounts[categoryName],
+      totalDocuments: categoryCounts[categoryName], // What the frontend expects
       total: categoryCounts[categoryName], // For backwards compatibility
       averageScore: 0
     }))
