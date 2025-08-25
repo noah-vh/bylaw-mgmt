@@ -289,6 +289,7 @@ export interface BylawViolation {
   requirement: string;
   current_value: number | string;
   required_value: number | string;
+  suggestion?: string;
 }
 
 export interface BylawWarning {

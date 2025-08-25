@@ -17,7 +17,12 @@ import {
   AlertTriangle,
   RotateCcw,
   Info,
-  MapPin
+  MapPin,
+  Settings,
+  Building,
+  ArrowUpDown,
+  ArrowLeftRight,
+  AlertCircle
 } from 'lucide-react'
 import type { MunicipalityWithBylawData, BylawValidationResult, BylawViolation } from '@/lib/municipality-bylaw-types'
 
@@ -29,7 +34,12 @@ interface Config {
   sideSetback: number
   aduWidth: number
   aduDepth: number
+  aduStories: number
+  aduType: 'detached' | 'attached' | 'garage_conversion'
+  separationFromMain: number
   units: 'imperial' | 'metric'
+  mainBuildingWidth: number
+  mainBuildingDepth: number
 }
 
 interface Obstacle {
@@ -41,6 +51,15 @@ interface Obstacle {
   y: number
 }
 
+interface ADUPreset {
+  id: string
+  title: string
+  dimensions: string
+  squareFeet: number
+  width: number
+  depth: number
+}
+
 export default function LotConfigurator() {
   const [config, setConfig] = useState<Config>({
     lotWidth: 100,
@@ -50,8 +69,32 @@ export default function LotConfigurator() {
     sideSetback: 4,
     aduWidth: 20,
     aduDepth: 24,
-    units: 'imperial'
+    aduStories: 1,
+    aduType: 'detached',
+    separationFromMain: 16.4, // 5m default for single story
+    units: 'imperial',
+    mainBuildingWidth: 30,
+    mainBuildingDepth: 40
   })
+
+  // ADU Presets based on modular units
+  const aduPresets: ADUPreset[] = [
+    { id: 'studio', title: 'Studio ADU', dimensions: '16\' × 20\'', squareFeet: 320, width: 16, depth: 20 },
+    { id: '1br', title: '1 Bedroom ADU', dimensions: '20\' × 24\'', squareFeet: 480, width: 20, depth: 24 },
+    { id: '1br-large', title: '1 Bedroom ADU (Large)', dimensions: '24\' × 28\'', squareFeet: 672, width: 24, depth: 28 },
+    { id: '2br', title: '2 Bedroom ADU', dimensions: '28\' × 32\'', squareFeet: 896, width: 28, depth: 32 },
+    { id: '2br-large', title: '2 Bedroom ADU (Large)', dimensions: '32\' × 36\'', squareFeet: 1152, width: 32, depth: 36 },
+    { id: 'pre-approved', title: 'Pre-Approved Plans', dimensions: 'Various sizes', squareFeet: 0, width: 0, depth: 0 },
+    { id: 'custom', title: 'Custom Size', dimensions: 'Set your own', squareFeet: 0, width: 20, depth: 24 }
+  ]
+
+  const [selectedAduPreset, setSelectedAduPreset] = useState<string>('1br')
+  const [aduModule, setAduModule] = useState<'custom' | '1' | '2' | '3'>('custom')
+  const [isModuleRotated, setIsModuleRotated] = useState(false)
+  const [aduType, setAduType] = useState<'detached' | 'attached'>('detached')
+  const [aduStories, setAduStories] = useState<1 | 2>(1)
+  
+  // Note: Removed circular dependency - local state (aduType, aduStories) is source of truth
 
   const [obstacles, setObstacles] = useState<Obstacle[]>([])
   const [aduPosition, setAduPosition] = useState({ x: 50, y: 60 })
@@ -62,6 +105,7 @@ export default function LotConfigurator() {
   const [resizeStart, setResizeStart] = useState({ x: 0, y: 0, width: 0, height: 0 })
   const [dragPositions, setDragPositions] = useState<{adu?: {x: number, y: number}, obstacles?: Record<string, {x: number, y: number}>}>({})
   const lastUpdateRef = useRef(0)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
   
   // Municipality selection and bylaw data
   const [municipalities, setMunicipalities] = useState<MunicipalityWithBylawData[]>([])
@@ -72,10 +116,20 @@ export default function LotConfigurator() {
     warnings: []
   })
   const [loadingMunicipalities, setLoadingMunicipalities] = useState(false)
+  const [separationFromBylaws, setSeparationFromBylaws] = useState(false)
+  const [setbacksFromBylaws, setSetbacksFromBylaws] = useState({
+    front: false,
+    rear: false,
+    side: false
+  })
+  const [isApplyingBylaws, setIsApplyingBylaws] = useState(false)
 
   // Conversion constants
   const FEET_TO_METERS = 0.3048
   const SQFT_TO_SQM = 0.092903
+
+  // Canvas size
+  const [canvasSize, setCanvasSize] = useState({ width: 600, height: 400 })
 
   // Unit conversion functions
   const toDisplay = useCallback((value: number, isArea = false) => {
@@ -116,16 +170,27 @@ export default function LotConfigurator() {
 
   const updateConfigValue = (key: keyof Config, value: number | string) => {
     setConfig(prev => ({ ...prev, [key]: value }))
+    
+    // Reset bylaw tracking when user manually changes values
+    if (key === 'frontSetback') {
+      setSetbacksFromBylaws(prev => ({ ...prev, front: false }))
+    } else if (key === 'rearSetback') {
+      setSetbacksFromBylaws(prev => ({ ...prev, rear: false }))
+    } else if (key === 'sideSetback') {
+      setSetbacksFromBylaws(prev => ({ ...prev, side: false }))
+    }
   }
 
-  // Load municipalities with bylaw data
+  // Load all municipalities (not just those with bylaw data)
   useEffect(() => {
     const loadMunicipalities = async () => {
       setLoadingMunicipalities(true)
       try {
-        const response = await fetch('/api/municipalities/with-bylaw-data?hasData=true')
+        const response = await fetch('/api/municipalities/with-bylaw-data')
         if (response.ok) {
           const result = await response.json()
+          console.log('API response:', result)
+          console.log('Ajax municipality data:', result.data.find(m => m.id === 13))
           setMunicipalities(result.data)
         } else {
           console.error('Failed to load municipalities')
@@ -145,23 +210,80 @@ export default function LotConfigurator() {
 
   // Apply bylaw constraints when municipality is selected
   const applyBylawConstraints = useCallback(() => {
-    if (!selectedMunicipalityData?.bylaw_data) return
-
-    const bylawData = selectedMunicipalityData.bylaw_data
+    // Get fresh municipality data to avoid closure issues
+    const currentMunicipalityData = municipalities.find(m => m.id === selectedMunicipality)
+    console.log('applyBylawConstraints called for:', currentMunicipalityData?.name)
+    console.log('bylaw_data exists:', !!currentMunicipalityData?.bylaw_data)
     
-    // Apply setback constraints
-    if (bylawData.front_setback_min_ft && bylawData.front_setback_min_ft > config.frontSetback) {
-      updateConfigValue('frontSetback', bylawData.front_setback_min_ft)
+    if (!currentMunicipalityData?.bylaw_data) {
+      console.log('No bylaw data found, returning early')
+      return
     }
-    if (bylawData.rear_setback_standard_ft && bylawData.rear_setback_standard_ft > config.rearSetback) {
-      updateConfigValue('rearSetback', bylawData.rear_setback_standard_ft)
+
+    const bylawData = currentMunicipalityData.bylaw_data
+    console.log('Ajax bylaw data:', {
+      front: bylawData.front_setback_min_ft,
+      rear: bylawData.rear_setback_standard_ft,
+      side: bylawData.side_setback_interior_ft
+    })
+    const changes: string[] = []
+    let newSetbacksFromBylaws = { ...setbacksFromBylaws }
+    
+    // Apply setback constraints - update config state directly to avoid timing issues
+    let configUpdates: any = {}
+    
+    if (bylawData.front_setback_min_ft) {
+      configUpdates.frontSetback = bylawData.front_setback_min_ft
+      newSetbacksFromBylaws.front = true
+      changes.push(`Front setback set to: ${bylawData.front_setback_min_ft}'`)
     }
-    if (bylawData.side_setback_interior_ft && bylawData.side_setback_interior_ft > config.sideSetback) {
-      updateConfigValue('sideSetback', bylawData.side_setback_interior_ft)
+    
+    if (bylawData.rear_setback_standard_ft) {
+      configUpdates.rearSetback = bylawData.rear_setback_standard_ft
+      newSetbacksFromBylaws.rear = true
+      changes.push(`Rear setback set to: ${bylawData.rear_setback_standard_ft}'`)
+    }
+    
+    if (bylawData.side_setback_interior_ft) {
+      configUpdates.sideSetback = bylawData.side_setback_interior_ft
+      newSetbacksFromBylaws.side = true
+      changes.push(`Side setback set to: ${bylawData.side_setback_interior_ft}'`)
+    }
+    
+    // Apply all config updates at once
+    if (Object.keys(configUpdates).length > 0) {
+      console.log('Applying bylaw config updates:', configUpdates)
+      setConfig(prev => ({ ...prev, ...configUpdates }))
+    }
+    
+    // Update setback tracking state
+    console.log('Setting setbacksFromBylaws:', newSetbacksFromBylaws)
+    setSetbacksFromBylaws(newSetbacksFromBylaws)
+    
+    // Apply separation distance for different story ADUs
+    if (bylawData.distance_from_primary_ft && separationFromBylaws) {
+      updateConfigValue('separationFromMain', bylawData.distance_from_primary_ft)
+      changes.push(`Separation: ${config.separationFromMain}' → ${bylawData.distance_from_primary_ft}'`)
+    } else if (!separationFromBylaws) {
+      // Apply default separation based on ADU stories
+      const defaultSeparation = config.aduStories >= 2 ? 24.6 : 16.4
+      updateConfigValue('separationFromMain', defaultSeparation)
+    }
+
+    // Apply ADU type constraints
+    if (bylawData.adu_types_allowed) {
+      // Set to detached if only detached is allowed, or attached if only attached is allowed
+      if (bylawData.adu_types_allowed.detached && !bylawData.adu_types_allowed.attached && aduType !== 'detached') {
+        setAduType('detached')
+        changes.push(`ADU type set to detached (required by bylaws)`)
+      } else if (!bylawData.adu_types_allowed.detached && bylawData.adu_types_allowed.attached && aduType !== 'attached') {
+        setAduType('attached')
+        changes.push(`ADU type set to attached (required by bylaws)`)
+      }
     }
 
     // Apply ADU size constraints
-    if (bylawData.detached_adu_max_size_sqft) {
+    if (bylawData.detached_adu_max_size_sqft && aduType === 'detached') {
       const maxArea = bylawData.detached_adu_max_size_sqft
       const currentArea = config.aduWidth * config.aduDepth
       if (currentArea > maxArea) {
@@ -169,9 +291,162 @@ export default function LotConfigurator() {
         const scaleFactor = Math.sqrt(maxArea / currentArea)
         updateConfigValue('aduWidth', Math.floor(config.aduWidth * scaleFactor))
         updateConfigValue('aduDepth', Math.floor(config.aduDepth * scaleFactor))
+        changes.push(`ADU size reduced to meet maximum: ${currentArea} → ${Math.floor(config.aduWidth * scaleFactor) * Math.floor(config.aduDepth * scaleFactor)} sq ft`)
       }
     }
-  }, [selectedMunicipalityData, config])
+
+    // Apply height/story constraints
+    if (bylawData.detached_adu_max_stories && aduType === 'detached' && bylawData.detached_adu_max_stories < aduStories) {
+      setAduStories(bylawData.detached_adu_max_stories as 1 | 2)
+      changes.push(`ADU stories reduced to ${bylawData.detached_adu_max_stories} (required by bylaws)`)
+    }
+    
+    // Log changes if any were made
+    if (changes.length > 0) {
+      console.log('Applied bylaw constraints:', changes)
+      // Could add a toast notification here
+    }
+  }, [municipalities, selectedMunicipality, config, updateConfigValue, setbacksFromBylaws, separationFromBylaws, aduType, aduStories])
+
+  // Apply constraints for a specific municipality (avoids closure issues)
+  const applyBylawConstraintsForMunicipality = useCallback((municipalityData: any) => {
+    console.log('applyBylawConstraintsForMunicipality called for:', municipalityData?.name)
+    console.log('bylaw_data exists:', !!municipalityData?.bylaw_data)
+    
+    const changes: string[] = []
+    let configUpdates: any = {}
+    
+    // Always apply default separation based on current stories, then override if bylaw data exists
+    const currentStories = config.aduStories || aduStories // Use config value first, fallback to state
+    const defaultSeparation = currentStories >= 2 ? 24.6 : 16.4 // 7.5m for 2-story, 5m for 1-story
+    configUpdates.separationFromMain = defaultSeparation
+    changes.push(`Separation from residence set to default: ${defaultSeparation}' (${currentStories >= 2 ? '7.5m' : '5m'})`)
+    
+    if (!municipalityData?.bylaw_data) {
+      console.log('No bylaw data found, using defaults only')
+      // Apply the default separation
+      if (Object.keys(configUpdates).length > 0) {
+        console.log('Applying default config updates:', configUpdates)
+        setConfig(prev => ({ ...prev, ...configUpdates }))
+      }
+      if (changes.length > 0) {
+        console.log('Applied default constraints:', changes)
+      }
+      return
+    }
+
+    const bylawData = municipalityData.bylaw_data
+    console.log('Bylaw data:', {
+      front: bylawData.front_setback_min_ft,
+      rear: bylawData.rear_setback_standard_ft,
+      side: bylawData.side_setback_interior_ft
+    })
+    let newSetbacksFromBylaws = { ...setbacksFromBylaws }
+    
+    if (bylawData.front_setback_min_ft) {
+      configUpdates.frontSetback = parseFloat(bylawData.front_setback_min_ft)
+      newSetbacksFromBylaws.front = true
+      changes.push(`Front setback set to: ${bylawData.front_setback_min_ft}'`)
+    }
+    
+    if (bylawData.rear_setback_standard_ft) {
+      configUpdates.rearSetback = parseFloat(bylawData.rear_setback_standard_ft)
+      newSetbacksFromBylaws.rear = true
+      changes.push(`Rear setback set to: ${bylawData.rear_setback_standard_ft}'`)
+    }
+    
+    if (bylawData.side_setback_interior_ft) {
+      configUpdates.sideSetback = parseFloat(bylawData.side_setback_interior_ft)
+      newSetbacksFromBylaws.side = true
+      changes.push(`Side setback set to: ${bylawData.side_setback_interior_ft}'`)
+    }
+    
+    // Override default separation if bylaw specifies it
+    if (bylawData.distance_from_primary_ft) {
+      configUpdates.separationFromMain = parseFloat(bylawData.distance_from_primary_ft)
+      // Update the changes message to show it's from bylaws, not default
+      const defaultMessage = `Separation from residence set to default: ${configUpdates.separationFromMain}' (${aduStories >= 2 ? '7.5m' : '5m'})`
+      const bylawMessage = `Separation from residence set to: ${bylawData.distance_from_primary_ft}' (bylaw requirement)`
+      // Replace the default message with bylaw message
+      const defaultIndex = changes.findIndex(c => c.includes('set to default'))
+      if (defaultIndex !== -1) {
+        changes[defaultIndex] = bylawMessage
+      } else {
+        changes.push(bylawMessage)
+      }
+    }
+    
+    // Apply all config updates at once
+    if (Object.keys(configUpdates).length > 0) {
+      console.log('Applying bylaw config updates:', configUpdates)
+      setConfig(prev => ({ ...prev, ...configUpdates }))
+    }
+    
+    // Update setback tracking state
+    console.log('Setting setbacksFromBylaws:', newSetbacksFromBylaws)
+    setSetbacksFromBylaws(newSetbacksFromBylaws)
+    
+    if (changes.length > 0) {
+      console.log('Applied bylaw constraints:', changes)
+    }
+  }, [setbacksFromBylaws])
+
+  // Update ADU dimensions when module selection changes
+  useEffect(() => {
+    if (aduModule !== 'custom') {
+      const modulePresets = {
+        '1': isModuleRotated 
+          ? { width: 20, depth: 8.5 }    // Rotated Studio 1: 20′ × 8.5′
+          : { width: 8.5, depth: 20 },   // Studio 1: 8.5′ × 20′ (170 sq ft)
+        '2': isModuleRotated 
+          ? { width: 17, depth: 20 }     // Rotated 1 Bedroom: 17′ × 20′
+          : { width: 20, depth: 17 },    // 1 Bedroom: 20′ × 17′ (340 sq ft)
+        '3': isModuleRotated 
+          ? { width: 25.5, depth: 20 }   // Rotated 2 Bedroom: 25.5′ × 20′
+          : { width: 20, depth: 25.5 }   // 2 Bedroom: 20′ × 25.5′ (510 sq ft)
+      }
+      const preset = modulePresets[aduModule]
+      if (preset && (config.aduWidth !== preset.width || config.aduDepth !== preset.depth)) {
+        setConfig(prev => ({
+          ...prev,
+          aduWidth: preset.width,
+          aduDepth: preset.depth
+        }))
+      }
+    }
+  }, [aduModule, config.aduWidth, config.aduDepth, isModuleRotated])
+
+  // Update config when aduType or aduStories changes
+  useEffect(() => {
+    setConfig(prev => {
+      let updates: Partial<typeof prev> = {}
+      let needsUpdate = false
+
+      if (prev.aduType !== aduType) {
+        updates.aduType = aduType
+        needsUpdate = true
+      }
+
+      if (prev.aduStories !== aduStories) {
+        updates.aduStories = aduStories
+        needsUpdate = true
+        
+        // Update separation based on stories, but check if municipality has specific separation requirement
+        const currentMunicipality = municipalities.find(m => m.id === selectedMunicipality)
+        const hasBylawSeparation = currentMunicipality?.bylaw_data?.distance_from_primary_ft
+        
+        // Only update if no specific bylaw separation requirement exists
+        if (!hasBylawSeparation) {
+          const newSeparation = aduStories >= 2 ? 24.6 : 16.4
+          if (prev.separationFromMain !== newSeparation) {
+            updates.separationFromMain = newSeparation
+          }
+        }
+      }
+
+      return needsUpdate ? { ...prev, ...updates } : prev
+    })
+  }, [aduType, aduStories, municipalities, selectedMunicipality])
 
   const calculateMetrics = useCallback(() => {
     const lotArea = config.lotWidth * config.lotDepth
@@ -190,17 +465,27 @@ export default function LotConfigurator() {
 
   // Validate against bylaw requirements
   const validateAgainstBylaws = useCallback(() => {
+    console.log('validateAgainstBylaws called for:', selectedMunicipalityData?.name)
+    console.log('selectedMunicipalityData:', selectedMunicipalityData)
+    
     if (!selectedMunicipalityData?.bylaw_data) {
+      console.log('No bylaw data, setting validation to valid')
       setBylawValidation({ isValid: true, violations: [], warnings: [] })
       return
     }
 
     const bylawData = selectedMunicipalityData.bylaw_data
+    console.log('Found bylaw data:', bylawData)
     const violations: BylawViolation[] = []
     const warnings: any[] = []
 
-    // Check setbacks
-    if (bylawData.front_setback_min_ft && config.frontSetback < bylawData.front_setback_min_ft) {
+    // Check setbacks (only if they're not automatically set from bylaws)
+    if (bylawData.front_setback_min_ft && !setbacksFromBylaws.front && config.frontSetback < bylawData.front_setback_min_ft) {
+      console.log('Front setback violation:', {
+        current: config.frontSetback,
+        required: bylawData.front_setback_min_ft,
+        fromBylaws: setbacksFromBylaws.front
+      })
       violations.push({
         type: 'setback',
         message: 'Front setback is below minimum requirement',
@@ -210,7 +495,7 @@ export default function LotConfigurator() {
       })
     }
 
-    if (bylawData.rear_setback_standard_ft && config.rearSetback < bylawData.rear_setback_standard_ft) {
+    if (bylawData.rear_setback_standard_ft && !setbacksFromBylaws.rear && config.rearSetback < bylawData.rear_setback_standard_ft) {
       violations.push({
         type: 'setback',
         message: 'Rear setback is below minimum requirement',
@@ -220,7 +505,7 @@ export default function LotConfigurator() {
       })
     }
 
-    if (bylawData.side_setback_interior_ft && config.sideSetback < bylawData.side_setback_interior_ft) {
+    if (bylawData.side_setback_interior_ft && !setbacksFromBylaws.side && config.sideSetback < bylawData.side_setback_interior_ft) {
       violations.push({
         type: 'setback',
         message: 'Side setback is below minimum requirement',
@@ -273,6 +558,15 @@ export default function LotConfigurator() {
       })
     }
 
+    // Check if using default separation (risk reminder when no bylaw separation found)
+    if (!bylawData.distance_from_primary_ft) {
+      warnings.push({
+        type: 'consideration',
+        message: 'Using default separation distance from main dwelling',
+        details: `Default: ${config.aduStories >= 2 ? '7.5m (24.6\')' : '5m (16.4\')'} - confirm separation requirement from municipal bylaws`
+      })
+    }
+
     setBylawValidation({
       isValid: violations.length === 0,
       violations,
@@ -280,15 +574,31 @@ export default function LotConfigurator() {
     })
   }, [selectedMunicipalityData, config, calculateMetrics])
 
-  // Re-validate when config or municipality changes
+  // Re-validate when config or municipality changes (but not during bylaw application)
   useEffect(() => {
-    validateAgainstBylaws()
-  }, [validateAgainstBylaws])
+    if (!isApplyingBylaws) {
+      validateAgainstBylaws()
+    }
+  }, [validateAgainstBylaws, isApplyingBylaws])
 
   const getCoverageStatus = (coverage: number) => {
     if (coverage < 35) return 'success'
     if (coverage < 50) return 'warning'
     return 'danger'
+  }
+
+  const handleAduPresetChange = (presetId: string) => {
+    setSelectedAduPreset(presetId)
+    const preset = aduPresets.find(p => p.id === presetId)
+    if (preset && preset.width > 0 && preset.depth > 0) {
+      updateConfigValue('aduWidth', preset.width)
+      updateConfigValue('aduDepth', preset.depth)
+    }
+  }
+
+  const isUsingDefaultSeparation = () => {
+    const defaultSeparation = config.aduStories >= 2 ? 24.6 : 16.4
+    return !separationFromBylaws && Math.abs(config.separationFromMain - defaultSeparation) < 0.1
   }
 
   const checkAduValidPlacement = useCallback(() => {
@@ -308,7 +618,7 @@ export default function LotConfigurator() {
                            aduRight <= buildableRight && 
                            aduBottom <= buildableBottom
 
-    // Check for obstacle collisions
+    // Check for object collisions
     const hasCollision = obstacles.some(obstacle => {
       const obsLeft = obstacle.x
       const obsTop = obstacle.y
@@ -321,14 +631,29 @@ export default function LotConfigurator() {
                aduTop >= obsBottom)
     })
 
-    return withinBuildable && !hasCollision
+    // Check separation from primary residence
+    const residence = obstacles.find(o => o.type === 'residence')
+    let separationViolation = false
+    if (residence) {
+      const resLeft = residence.x - config.separationFromMain
+      const resTop = residence.y - config.separationFromMain
+      const resRight = residence.x + residence.width + config.separationFromMain
+      const resBottom = residence.y + residence.depth + config.separationFromMain
+
+      separationViolation = !(aduRight <= resLeft || 
+                             aduLeft >= resRight || 
+                             aduBottom <= resTop || 
+                             aduTop >= resBottom)
+    }
+
+    return withinBuildable && !hasCollision && !separationViolation
   }, [config, aduPosition, obstacles])
 
   const addObstacle = (type: string) => {
     const sizes: Record<string, { width: number; height: number }> = {
       tree: { width: 15, height: 15 },
       rock: { width: 10, height: 10 },
-      structure: { width: 25, height: 20 },
+      residence: { width: 25, height: 20 },
       shed: { width: 12, height: 12 },
       pool: { width: 20, height: 30 },
       fence: { width: 40, height: 3 },
@@ -357,7 +682,7 @@ export default function LotConfigurator() {
   }
 
   // Calculate scale factor for visualization
-  const scale = 2.5
+  const scale = 3.5
 
   // Mouse event handlers for drag and resize
   const handleAduMouseDown = useCallback((e: React.MouseEvent) => {
@@ -455,7 +780,7 @@ export default function LotConfigurator() {
           }
         }
         
-        // Apply boundary constraints
+        // Apply boundary constraints - keep precise positioning for smooth dragging
         const newX = Math.max(0, Math.min(config.lotWidth - elementWidth, rawX))
         const newY = Math.max(0, Math.min(config.lotDepth - elementDepth, rawY))
         
@@ -543,6 +868,42 @@ export default function LotConfigurator() {
     }
   }, [isDragging, isResizing, selectedElement, dragOffset, resizeStart, scale, config.lotWidth, config.lotDepth, config.aduWidth, config.aduDepth, obstacles, updateConfigValue])
 
+  const generateDetailedReport = () => {
+    const metrics = calculateMetrics()
+    const report = {
+      timestamp: new Date().toISOString(),
+      municipality: selectedMunicipalityData?.name || 'None selected',
+      property: {
+        lotSize: `${toDisplay(config.lotWidth)} × ${toDisplay(config.lotDepth)} ${getUnitLabel()}`,
+        lotArea: `${toDisplay(metrics.lotArea, true)} ${getUnitLabel(true)}`,
+        buildableArea: `${toDisplay(metrics.buildableAreaSize, true)} ${getUnitLabel(true)}`
+      },
+      adu: {
+        type: config.aduType,
+        size: `${toDisplay(config.aduWidth)} × ${toDisplay(config.aduDepth)} ${getUnitLabel()}`,
+        area: `${toDisplay(metrics.aduArea, true)} ${getUnitLabel(true)}`,
+        stories: config.aduStories,
+        position: `${toDisplay(aduPosition.x)}, ${toDisplay(aduPosition.y)} ${getUnitLabel()}`
+      },
+      setbacks: {
+        front: `${toDisplay(config.frontSetback)} ${getUnitLabel()} ${setbacksFromBylaws.front ? '(from bylaws)' : '(manual)'}`,
+        rear: `${toDisplay(config.rearSetback)} ${getUnitLabel()} ${setbacksFromBylaws.rear ? '(from bylaws)' : '(manual)'}`,
+        side: `${toDisplay(config.sideSetback)} ${getUnitLabel()} ${setbacksFromBylaws.side ? '(from bylaws)' : '(manual)'}`
+      },
+      compliance: {
+        isValid: bylawValidation.isValid,
+        violations: bylawValidation.violations.length,
+        warnings: bylawValidation.warnings.length,
+        details: [...bylawValidation.violations, ...bylawValidation.warnings]
+      },
+      calculations: {
+        lotCoverage: `${metrics.coverage.toFixed(1)}%`,
+        separationDistance: `${toDisplay(config.separationFromMain)} ${getUnitLabel()}`
+      }
+    }
+    return report
+  }
+
   const exportConfiguration = () => {
     const timestamp = new Date()
     const metrics = calculateMetrics()
@@ -589,6 +950,14 @@ export default function LotConfigurator() {
     link.click()
     URL.revokeObjectURL(url)
   }
+
+  // Placeholder for missing variables/functions
+  const issues: string[] = []
+  const violations = bylawValidation.violations || []
+  const handleCanvasClick = () => {}
+  const handleMouseDown = () => {}
+  const handleMouseMove = () => {}
+  const handleMouseUp = () => {}
 
   const metrics = calculateMetrics()
   const coverageStatus = getCoverageStatus(metrics.coverage)
@@ -643,21 +1012,17 @@ export default function LotConfigurator() {
           {/* Configuration Settings */}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Home className="h-4 w-4" />
-                Property Configuration
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {/* Unit Toggle */}
-              <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium">Units</Label>
+              <CardTitle className="flex items-center justify-between text-base">
+                <div className="flex items-center gap-2">
+                  <Settings className="h-4 w-4" />
+                  Property Configuration
+                </div>
                 <div className="flex border border-border rounded-md overflow-hidden">
                   <Button
                     variant={config.units === 'imperial' ? 'default' : 'ghost'}
                     size="sm"
                     onClick={() => updateConfigValue('units', 'imperial')}
-                    className="h-7 px-3 text-xs rounded-none border-0"
+                    className="h-6 px-2 text-xs rounded-none border-0"
                   >
                     ft
                   </Button>
@@ -665,12 +1030,14 @@ export default function LotConfigurator() {
                     variant={config.units === 'metric' ? 'default' : 'ghost'}
                     size="sm"
                     onClick={() => updateConfigValue('units', 'metric')}
-                    className="h-7 px-3 text-xs rounded-none border-0"
+                    className="h-6 px-2 text-xs rounded-none border-0"
                   >
                     m
                   </Button>
                 </div>
-              </div>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
 
               {/* Municipality Selection */}
               <div className="space-y-2">
@@ -681,56 +1048,101 @@ export default function LotConfigurator() {
                 <Select 
                   value={selectedMunicipality?.toString() || 'none'} 
                   onValueChange={(value) => {
+                    console.log('Municipality selected:', value)
                     const municipalityId = value !== 'none' ? parseInt(value) : null
+                    console.log('Municipality ID:', municipalityId)
+                    const selectedMuni = municipalities.find(m => m.id === municipalityId)
+                    console.log('Selected municipality data:', selectedMuni)
                     setSelectedMunicipality(municipalityId)
+                    if (municipalityId) {
+                      console.log('Starting bylaw application process...')
+                      // Automatically apply bylaw constraints when municipality is selected
+                      setSeparationFromBylaws(true)
+                      setIsApplyingBylaws(true)
+                      // Wait for municipalities data to be loaded before applying bylaws
+                      const waitForMunicipalities = () => {
+                        console.log('waitForMunicipalities check - length:', municipalities.length)
+                        const targetMuni = municipalities.find(m => m.id === municipalityId)
+                        console.log('Target municipality found:', !!targetMuni, targetMuni?.name)
+                        
+                        if (municipalities.length > 0 && targetMuni) {
+                          console.log('About to call applyBylawConstraints...')
+                          // Call applyBylawConstraints with explicit municipality data to avoid closure issues
+                          applyBylawConstraintsForMunicipality(targetMuni)
+                          setTimeout(() => {
+                            console.log('Setting isApplyingBylaws to false and validating...')
+                            setIsApplyingBylaws(false)
+                            validateAgainstBylaws()
+                          }, 100)
+                        } else {
+                          // Municipalities still loading, check again
+                          console.log('Still waiting for municipalities to load...')
+                          setTimeout(waitForMunicipalities, 100)
+                        }
+                      }
+                      setTimeout(waitForMunicipalities, 100)
+                    } else {
+                      setSeparationFromBylaws(false)
+                      const defaultSeparation = config.aduStories >= 2 ? 24.6 : 16.4
+                      updateConfigValue('separationFromMain', defaultSeparation)
+                    }
                   }}
-                  disabled={loadingMunicipalities}
                 >
-                  <SelectTrigger className="h-8">
-                    <SelectValue placeholder={loadingMunicipalities ? "Loading..." : "Select municipality"} />
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="Select municipality..." />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">None (Generic Settings)</SelectItem>
-                    {municipalities.map((municipality) => (
-                      <SelectItem key={municipality.id} value={municipality.id.toString()}>
-                        {municipality.name}
+                    <SelectItem value="none">
+                      <div className="flex justify-between items-center w-full">
+                        <span className="font-medium">Manual Configuration</span>
+                      </div>
+                    </SelectItem>
+                    {municipalities.map((muni) => (
+                      <SelectItem key={muni.id} value={muni.id.toString()}>
+                        <div className="flex justify-between items-center w-full">
+                          <span className="font-medium">{muni.name}</span>
+                          {muni.bylaw_data && (
+                            <Badge variant="secondary" className="text-xs ml-2">
+                              Bylaws
+                            </Badge>
+                          )}
+                        </div>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                {selectedMunicipalityData && (
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={applyBylawConstraints}
-                      className="h-7 text-xs"
-                    >
-                      Apply Bylaw Rules
-                    </Button>
-                    {selectedMunicipalityData.bylaw_data?.bylaw_ordinance_number && (
-                      <Badge variant="secondary" className="text-xs">
-                        {selectedMunicipalityData.bylaw_data.bylaw_ordinance_number}
-                      </Badge>
-                    )}
-                  </div>
-                )}
               </div>
 
               {/* Property Dimensions */}
               <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Ruler className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm font-medium">Property Dimensions</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Ruler className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">Property Dimensions</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-xs text-blue-600 bg-blue-50/50 border border-dashed border-blue-200 px-2.5 py-1.5 rounded-md">
+                    <Info className="h-3.5 w-3.5" />
+                    <span>Validate via site visit</span>
+                  </div>
                 </div>
                 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <div className="flex justify-between items-center mb-1">
+                    <div className="flex items-center gap-1 mb-1">
                       <Label className="text-xs">Width</Label>
-                      <Badge variant="outline" className="font-mono text-xs h-5">
-                        {toDisplay(config.lotWidth)} {getUnitLabel()}
-                      </Badge>
+                      <input
+                        type="text"
+                        value={config.units === 'imperial' ? toFeetAndInches(config.lotWidth) : `${toDisplay(config.lotWidth)}m`}
+                        onChange={(e) => {
+                          const val = config.units === 'imperial' 
+                            ? fromFeetAndInches(e.target.value)
+                            : parseFloat(e.target.value.replace('m', '')) / FEET_TO_METERS
+                          if (!isNaN(val) && val > 0) {
+                            updateConfigValue('lotWidth', Math.min(200, Math.max(30, val)))
+                          }
+                        }}
+                        className="text-xs font-mono w-12 px-1 py-0.5 border rounded text-right ml-auto transition-all duration-75 ease-out"
+                      />
                     </div>
                     <input
                       type="range"
@@ -747,11 +1159,21 @@ export default function LotConfigurator() {
                   </div>
                   
                   <div>
-                    <div className="flex justify-between items-center mb-1">
+                    <div className="flex items-center gap-1 mb-1">
                       <Label className="text-xs">Depth</Label>
-                      <Badge variant="outline" className="font-mono text-xs h-5">
-                        {toDisplay(config.lotDepth)} {getUnitLabel()}
-                      </Badge>
+                      <input
+                        type="text"
+                        value={config.units === 'imperial' ? toFeetAndInches(config.lotDepth) : `${toDisplay(config.lotDepth)}m`}
+                        onChange={(e) => {
+                          const val = config.units === 'imperial' 
+                            ? fromFeetAndInches(e.target.value)
+                            : parseFloat(e.target.value.replace('m', '')) / FEET_TO_METERS
+                          if (!isNaN(val) && val > 0) {
+                            updateConfigValue('lotDepth', Math.min(200, Math.max(30, val)))
+                          }
+                        }}
+                        className="text-xs font-mono w-12 px-1 py-0.5 border rounded text-right ml-auto transition-all duration-75 ease-out"
+                      />
                     </div>
                     <input
                       type="range"
@@ -769,20 +1191,188 @@ export default function LotConfigurator() {
                 </div>
               </div>
 
-              {/* Setback Requirements */}
+              {/* ADU Configuration */}
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
-                  <Info className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm font-medium">Setbacks</span>
+                  <Home className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-medium">ADU Configuration</span>
                 </div>
                 
-                <div className="grid grid-cols-2 gap-3">
+                <Select value={aduModule} onValueChange={(value: 'custom' | '1' | '2' | '3') => {
+                  setAduModule(value)
+                  setIsModuleRotated(false) // Reset rotation when changing modules
+                }}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Select module">
+                      <div className="flex justify-between items-center w-full">
+                        <span>
+                          {aduModule === 'custom' && 'Custom'}
+                          {aduModule === '1' && '1 Module'}
+                          {aduModule === '2' && '2 Module'}
+                          {aduModule === '3' && '3 Module'}
+                        </span>
+                        <span className="text-muted-foreground ml-2">
+                          {aduModule === '1' && '8.5\' × 20\' (170 sq ft)'}
+                          {aduModule === '2' && '20\' × 17\' (340 sq ft)'}
+                          {aduModule === '3' && '20\' × 25.5\' (510 sq ft)'}
+                        </span>
+                      </div>
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="custom" className="w-full block">
+                      <div className="flex justify-between items-center w-full pr-2">
+                        <span>Custom</span>
+                        <span className="text-muted-foreground text-xs"></span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="1" className="w-full block">
+                      <div className="flex justify-between items-center w-full pr-2">
+                        <span>1 Module</span>
+                        <span className="text-muted-foreground text-xs">8.5' × 20' (170 sq ft)</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="2" className="w-full block">
+                      <div className="flex justify-between items-center w-full pr-2">
+                        <span>2 Module</span>
+                        <span className="text-muted-foreground text-xs">20' × 17' (340 sq ft)</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="3" className="w-full block">
+                      <div className="flex justify-between items-center w-full pr-2">
+                        <span>3 Module</span>
+                        <span className="text-muted-foreground text-xs">20' × 25.5' (510 sq ft)</span>
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                
+                <div className="grid grid-cols-2 gap-2">
+                  <Select value={aduType} onValueChange={(value: 'detached' | 'attached') => setAduType(value)}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="Type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="detached">Detached</SelectItem>
+                      <SelectItem value="attached">Attached</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  
+                  <Select value={aduStories.toString()} onValueChange={(value: string) => setAduStories(parseInt(value) as 1 | 2)}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="Stories" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">1 Story</SelectItem>
+                      <SelectItem value="2">2 Story</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                {aduModule === 'custom' && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <div className="flex items-center gap-1 mb-1">
+                        <Label className="text-xs">Width</Label>
+                        <input
+                          type="text"
+                          value={config.units === 'imperial' ? toFeetAndInches(config.aduWidth) : `${toDisplay(config.aduWidth)}m`}
+                          onChange={(e) => {
+                            const val = config.units === 'imperial' 
+                              ? fromFeetAndInches(e.target.value)
+                              : parseFloat(e.target.value.replace('m', '')) / FEET_TO_METERS
+                            if (!isNaN(val) && val > 0) {
+                              updateConfigValue('aduWidth', Math.min(40, Math.max(10, val)))
+                            }
+                          }}
+                          className="text-xs font-mono w-10 px-1 py-0.5 border rounded text-right ml-auto transition-all duration-75 ease-out"
+                        />
+                      </div>
+                      <input
+                        type="range"
+                        value={config.units === 'metric' ? parseFloat(toDisplay(config.aduWidth).toString()) : config.aduWidth}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value)
+                          updateConfigValue('aduWidth', config.units === 'metric' ? Math.round(val / FEET_TO_METERS) : val)
+                        }}
+                        max={config.units === 'metric' ? 12 : 40}
+                        min={config.units === 'metric' ? 3 : 10}
+                        step={config.units === 'metric' ? 0.3 : 1}
+                        className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                      />
+                    </div>
+                    
+                    <div>
+                      <div className="flex items-center gap-1 mb-1">
+                        <Label className="text-xs">Depth</Label>
+                        <input
+                          type="text"
+                          value={config.units === 'imperial' ? toFeetAndInches(config.aduDepth) : `${toDisplay(config.aduDepth)}m`}
+                          onChange={(e) => {
+                            const val = config.units === 'imperial' 
+                              ? fromFeetAndInches(e.target.value)
+                              : parseFloat(e.target.value.replace('m', '')) / FEET_TO_METERS
+                            if (!isNaN(val) && val > 0) {
+                              updateConfigValue('aduDepth', Math.min(40, Math.max(10, val)))
+                            }
+                          }}
+                          className="text-xs font-mono w-10 px-1 py-0.5 border rounded text-right ml-auto transition-all duration-75 ease-out"
+                        />
+                      </div>
+                      <input
+                        type="range"
+                        value={config.units === 'metric' ? parseFloat(toDisplay(config.aduDepth).toString()) : config.aduDepth}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value)
+                          updateConfigValue('aduDepth', config.units === 'metric' ? Math.round(val / FEET_TO_METERS) : val)
+                        }}
+                        max={config.units === 'metric' ? 12 : 40}
+                        min={config.units === 'metric' ? 3 : 10}
+                        step={config.units === 'metric' ? 0.3 : 1}
+                        className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Setback Requirements */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Info className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">Setbacks</span>
+                  </div>
+                  {selectedMunicipalityData?.bylaw_data && (
+                    <div className="flex items-center gap-1.5 text-xs text-blue-600 bg-blue-50/50 border border-dashed border-blue-200 px-2.5 py-1.5 rounded-md">
+                      <Info className="h-3.5 w-3.5" />
+                      <span>Set by municipal bylaws</span>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="grid grid-cols-3 gap-2">
                   <div>
-                    <div className="flex justify-between items-center mb-1">
+                    <div className="flex items-center gap-1 mb-1">
                       <Label className="text-xs">Front</Label>
-                      <Badge variant="outline" className="font-mono text-xs h-5">
-                        {toDisplay(config.frontSetback)} {getUnitLabel()}
-                      </Badge>
+                      <input
+                        type="text"
+                        value={config.units === 'imperial' ? toFeetAndInches(config.frontSetback) : `${toDisplay(config.frontSetback)}m`}
+                        onChange={(e) => {
+                          const val = config.units === 'imperial' 
+                            ? fromFeetAndInches(e.target.value)
+                            : parseFloat(e.target.value.replace('m', '')) / FEET_TO_METERS
+                          if (!isNaN(val) && val >= 0) {
+                            updateConfigValue('frontSetback', Math.min(30, Math.max(0, val)))
+                          }
+                        }}
+                        disabled={selectedMunicipalityData?.bylaw_data?.front_setback_min_ft !== undefined}
+                        className={`text-xs font-mono w-10 px-1 py-0.5 border rounded text-right ml-auto transition-all duration-75 ease-out ${
+                          selectedMunicipalityData?.bylaw_data?.front_setback_min_ft !== undefined 
+                            ? 'bg-muted text-muted-foreground cursor-not-allowed' 
+                            : ''
+                        }`}
+                      />
                     </div>
                     <input
                       type="range"
@@ -794,16 +1384,36 @@ export default function LotConfigurator() {
                       max={config.units === 'metric' ? 9 : 30}
                       min={0}
                       step={config.units === 'metric' ? 0.3 : 1}
-                      className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                      disabled={selectedMunicipalityData?.bylaw_data?.front_setback_min_ft !== undefined}
+                      className={`w-full h-2 bg-muted rounded-lg appearance-none ${
+                        selectedMunicipalityData?.bylaw_data?.front_setback_min_ft !== undefined
+                          ? 'cursor-not-allowed opacity-50'
+                          : 'cursor-pointer accent-primary'
+                      }`}
                     />
                   </div>
                   
                   <div>
-                    <div className="flex justify-between items-center mb-1">
+                    <div className="flex items-center gap-1 mb-1">
                       <Label className="text-xs">Rear</Label>
-                      <Badge variant="outline" className="font-mono text-xs h-5">
-                        {toDisplay(config.rearSetback)} {getUnitLabel()}
-                      </Badge>
+                      <input
+                        type="text"
+                        value={config.units === 'imperial' ? toFeetAndInches(config.rearSetback) : `${toDisplay(config.rearSetback)}m`}
+                        onChange={(e) => {
+                          const val = config.units === 'imperial' 
+                            ? fromFeetAndInches(e.target.value)
+                            : parseFloat(e.target.value.replace('m', '')) / FEET_TO_METERS
+                          if (!isNaN(val) && val >= 0) {
+                            updateConfigValue('rearSetback', Math.min(30, Math.max(0, val)))
+                          }
+                        }}
+                        disabled={selectedMunicipalityData?.bylaw_data?.rear_setback_standard_ft !== undefined}
+                        className={`text-xs font-mono w-10 px-1 py-0.5 border rounded text-right ml-auto transition-all duration-75 ease-out ${
+                          selectedMunicipalityData?.bylaw_data?.rear_setback_standard_ft !== undefined 
+                            ? 'bg-muted text-muted-foreground cursor-not-allowed' 
+                            : ''
+                        }`}
+                      />
                     </div>
                     <input
                       type="range"
@@ -815,16 +1425,36 @@ export default function LotConfigurator() {
                       max={config.units === 'metric' ? 9 : 30}
                       min={0}
                       step={config.units === 'metric' ? 0.3 : 1}
-                      className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                      disabled={selectedMunicipalityData?.bylaw_data?.rear_setback_standard_ft !== undefined}
+                      className={`w-full h-2 bg-muted rounded-lg appearance-none ${
+                        selectedMunicipalityData?.bylaw_data?.rear_setback_standard_ft !== undefined
+                          ? 'cursor-not-allowed opacity-50'
+                          : 'cursor-pointer accent-primary'
+                      }`}
                     />
                   </div>
                   
-                  <div className="col-span-2">
-                    <div className="flex justify-between items-center mb-1">
-                      <Label className="text-xs">Side Setbacks</Label>
-                      <Badge variant="outline" className="font-mono text-xs h-5">
-                        {toDisplay(config.sideSetback)} {getUnitLabel()}
-                      </Badge>
+                  <div>
+                    <div className="flex items-center gap-1 mb-1">
+                      <Label className="text-xs">Side</Label>
+                      <input
+                        type="text"
+                        value={config.units === 'imperial' ? toFeetAndInches(config.sideSetback) : `${toDisplay(config.sideSetback)}m`}
+                        onChange={(e) => {
+                          const val = config.units === 'imperial' 
+                            ? fromFeetAndInches(e.target.value)
+                            : parseFloat(e.target.value.replace('m', '')) / FEET_TO_METERS
+                          if (!isNaN(val) && val >= 0) {
+                            updateConfigValue('sideSetback', Math.min(20, Math.max(0, val)))
+                          }
+                        }}
+                        disabled={selectedMunicipalityData?.bylaw_data?.side_setback_interior_ft !== undefined}
+                        className={`text-xs font-mono w-10 px-1 py-0.5 border rounded text-right ml-auto transition-all duration-75 ease-out ${
+                          selectedMunicipalityData?.bylaw_data?.side_setback_interior_ft !== undefined 
+                            ? 'bg-muted text-muted-foreground cursor-not-allowed' 
+                            : ''
+                        }`}
+                      />
                     </div>
                     <input
                       type="range"
@@ -836,61 +1466,46 @@ export default function LotConfigurator() {
                       max={config.units === 'metric' ? 6 : 20}
                       min={0}
                       step={config.units === 'metric' ? 0.3 : 1}
-                      className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                      disabled={selectedMunicipalityData?.bylaw_data?.side_setback_interior_ft !== undefined}
+                      className={`w-full h-2 bg-muted rounded-lg appearance-none ${
+                        selectedMunicipalityData?.bylaw_data?.side_setback_interior_ft !== undefined
+                          ? 'cursor-not-allowed opacity-50'
+                          : 'cursor-pointer accent-primary'
+                      }`}
                     />
                   </div>
-                </div>
-              </div>
-
-              {/* ADU Specifications */}
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Zap className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm font-medium">ADU Size</span>
                 </div>
                 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <div className="flex justify-between items-center mb-1">
-                      <Label className="text-xs">Width</Label>
-                      <Badge variant="outline" className="font-mono text-xs h-5">
-                        {config.units === 'imperial' ? toFeetAndInches(config.aduWidth) : `${toDisplay(config.aduWidth)} ${getUnitLabel()}`}
-                      </Badge>
-                    </div>
+                {/* Separation from Residence */}
+                <div className="mt-3">
+                  <div className="flex items-center gap-1 mb-1">
+                    <Label className="text-xs">Separation from Residence</Label>
                     <input
-                      type="range"
-                      value={config.units === 'metric' ? parseFloat(toDisplay(config.aduWidth).toString()) : config.aduWidth}
+                      type="text"
+                      value={config.units === 'imperial' ? toFeetAndInches(config.separationFromMain) : `${toDisplay(config.separationFromMain)}m`}
                       onChange={(e) => {
-                        const val = parseFloat(e.target.value)
-                        updateConfigValue('aduWidth', config.units === 'metric' ? Math.round(val / FEET_TO_METERS) : val)
+                        const val = config.units === 'imperial' 
+                          ? fromFeetAndInches(e.target.value)
+                          : parseFloat(e.target.value.replace('m', '')) / FEET_TO_METERS
+                        if (!isNaN(val) && val >= 0) {
+                          updateConfigValue('separationFromMain', Math.min(50, Math.max(0, val)))
+                        }
                       }}
-                      max={config.units === 'metric' ? 12 : 40}
-                      min={config.units === 'metric' ? 3 : 10}
-                      step={config.units === 'metric' ? 0.3 : 1}
-                      className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                      className="text-xs font-mono w-12 px-1 py-0.5 border rounded text-right ml-auto transition-all duration-75 ease-out"
                     />
                   </div>
-                  
-                  <div>
-                    <div className="flex justify-between items-center mb-1">
-                      <Label className="text-xs">Depth</Label>
-                      <Badge variant="outline" className="font-mono text-xs h-5">
-                        {config.units === 'imperial' ? toFeetAndInches(config.aduDepth) : `${toDisplay(config.aduDepth)} ${getUnitLabel()}`}
-                      </Badge>
-                    </div>
-                    <input
-                      type="range"
-                      value={config.units === 'metric' ? parseFloat(toDisplay(config.aduDepth).toString()) : config.aduDepth}
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value)
-                        updateConfigValue('aduDepth', config.units === 'metric' ? Math.round(val / FEET_TO_METERS) : val)
-                      }}
-                      max={config.units === 'metric' ? 12 : 40}
-                      min={config.units === 'metric' ? 3 : 10}
-                      step={config.units === 'metric' ? 0.3 : 1}
-                      className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-                    />
-                  </div>
+                  <input
+                    type="range"
+                    value={config.units === 'metric' ? parseFloat(toDisplay(config.separationFromMain).toString()) : config.separationFromMain}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value)
+                      updateConfigValue('separationFromMain', config.units === 'metric' ? Math.round(val / FEET_TO_METERS) : val)
+                    }}
+                    max={config.units === 'metric' ? 15 : 50}
+                    min={0}
+                    step={config.units === 'metric' ? 0.3 : 1}
+                    className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                  />
                 </div>
               </div>
 
@@ -921,48 +1536,6 @@ export default function LotConfigurator() {
                     Drag the ADU to reposition it on your lot
                   </CardDescription>
                 </div>
-                {/* Validation Status */}
-                <div className="flex flex-col gap-2">
-                  <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${overallValid ? 'bg-green-50 border-green-200 dark:bg-green-950/30 dark:border-green-800' : 'bg-red-50 border-red-200 dark:bg-red-950/30 dark:border-red-800'}`}>
-                    {overallValid ? (
-                      <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
-                    ) : (
-                      <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400" />
-                    )}
-                    <span className={`text-sm font-medium ${overallValid ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}`}>
-                      {overallValid ? 'Valid Configuration' : 'Issues Found'}
-                    </span>
-                  </div>
-                  
-                  {/* Placement validation */}
-                  {!isValidPlacement && (
-                    <div className="text-xs text-red-600 dark:text-red-400">
-                      • ADU placement violates setbacks
-                    </div>
-                  )}
-                  
-                  {/* Bylaw violations */}
-                  {bylawValidation.violations.length > 0 && (
-                    <div className="space-y-1">
-                      {bylawValidation.violations.map((violation, index) => (
-                        <div key={index} className="text-xs text-red-600 dark:text-red-400">
-                          • {violation.message}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  
-                  {/* Warnings */}
-                  {bylawValidation.warnings.length > 0 && (
-                    <div className="space-y-1">
-                      {bylawValidation.warnings.map((warning, index) => (
-                        <div key={index} className="text-xs text-yellow-600 dark:text-yellow-400">
-                          ⚠ {warning.message}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
               </div>
             </CardHeader>
             <CardContent className="flex-1 flex justify-center items-center bg-muted/30 relative min-h-0 p-4">
@@ -992,12 +1565,12 @@ export default function LotConfigurator() {
                   }}
                 />
 
-                {/* Obstacles */}
+                {/* Objects */}
                 {obstacles.map((obstacle) => {
                   const icons: Record<string, string> = {
                     tree: '🌳',
                     rock: '🪨',
-                    structure: '🏠',
+                    residence: '🏠',
                     shed: '🏚️',
                     pool: '🏊',
                     fence: '🚧',
@@ -1012,15 +1585,15 @@ export default function LotConfigurator() {
                       className={`absolute border-2 text-xs font-semibold flex items-center justify-center select-none z-10 ${isDragging && selectedElement?.type === 'obstacle' && selectedElement?.id === obstacle.id ? 'cursor-grabbing' : 'cursor-grab'} ${isDragging && selectedElement?.type === 'obstacle' && selectedElement?.id === obstacle.id ? '' : 'transition-all'} ${
                         obstacle.type === 'tree' ? 'bg-green-500 border-green-700 rounded-full text-white' :
                         obstacle.type === 'rock' ? 'bg-gray-500 border-gray-700 rounded-lg text-white' :
-                        obstacle.type === 'structure' ? 'bg-orange-500 border-orange-700 rounded-lg text-white' :
+                        obstacle.type === 'residence' ? 'bg-orange-500 border-orange-700 rounded-lg text-white' :
                         obstacle.type === 'shed' ? 'bg-purple-500 border-purple-700 rounded-lg text-white' :
                         obstacle.type === 'pool' ? 'bg-blue-500 border-blue-700 rounded-xl text-white' :
                         obstacle.type === 'fence' ? 'bg-red-500 border-red-700 rounded-lg text-white' :
                         'bg-yellow-500 border-yellow-700 rounded-lg text-white'
                       } ${isSelected ? 'outline outline-3 outline-blue-500 outline-offset-2' : 'hover:scale-105'}`}
                       style={{
-                        left: obstacle.x * scale + 'px',
-                        top: obstacle.y * scale + 'px',
+                        left: (dragPositions.obstacles?.[obstacle.id]?.x ?? obstacle.x) * scale + 'px',
+                        top: (dragPositions.obstacles?.[obstacle.id]?.y ?? obstacle.y) * scale + 'px',
                         width: obstacle.width * scale + 'px',
                         height: obstacle.depth * scale + 'px',
                         willChange: isDragging && selectedElement?.type === 'obstacle' && selectedElement?.id === obstacle.id ? 'transform' : 'auto'
@@ -1057,16 +1630,32 @@ export default function LotConfigurator() {
                   )
                 })}
 
+                {/* Separation boundaries for residences */}
+                {obstacles.filter(o => o.type === 'residence').map((residence) => (
+                  <div
+                    key={`boundary-${residence.id}`}
+                    className="absolute border border-orange-400 border-dashed pointer-events-none z-5"
+                    style={{
+                      left: (residence.x - config.separationFromMain) * scale + 'px',
+                      top: (residence.y - config.separationFromMain) * scale + 'px',
+                      width: (residence.width + 2 * config.separationFromMain) * scale + 'px',
+                      height: (residence.depth + 2 * config.separationFromMain) * scale + 'px'
+                    }}
+                  />
+                ))}
+
                 {/* ADU Unit */}
                 <div
-                  className={`absolute border-2 text-white text-sm font-semibold flex items-center justify-center select-none shadow-lg z-20 ${isDragging && selectedElement?.type === 'adu' ? 'cursor-grabbing' : 'cursor-grab'} ${isDragging && selectedElement?.type === 'adu' ? '' : 'transition-all'} ${
-                    !overallValid ? 'bg-destructive border-destructive' : 'bg-primary border-primary'
-                  } ${selectedElement?.type === 'adu' ? 'outline outline-3 outline-blue-500 outline-offset-2' : ''}`}
+                  className={`absolute border-2 text-white font-semibold flex items-center justify-center select-none shadow-lg rounded-lg z-20 ${isDragging && selectedElement?.type === 'adu' ? 'cursor-grabbing' : 'cursor-grab'} ${isDragging && selectedElement?.type === 'adu' ? '' : 'transition-all'} ${
+                    !overallValid ? 'bg-red-500 border-red-700' : 'bg-blue-600 border-blue-800'
+                  } ${selectedElement?.type === 'adu' ? 'outline outline-3 outline-blue-500 outline-offset-2' : 'hover:scale-105'} ${
+                    config.aduWidth < 12 ? 'text-xs' : config.aduWidth < 18 ? 'text-sm' : 'text-base'
+                  }`}
                   style={{
                     width: config.aduWidth * scale + 'px',
                     height: config.aduDepth * scale + 'px',
-                    left: aduPosition.x * scale + 'px',
-                    top: aduPosition.y * scale + 'px',
+                    left: (dragPositions.adu?.x ?? aduPosition.x) * scale + 'px',
+                    top: (dragPositions.adu?.y ?? aduPosition.y) * scale + 'px',
                     willChange: isDragging && selectedElement?.type === 'adu' ? 'transform' : 'auto'
                   }}
                   onMouseDown={(e) => handleAduMouseDown(e)}
@@ -1087,16 +1676,56 @@ export default function LotConfigurator() {
                 </div>
               </div>
 
-              {/* Floating Obstacle Panel */}
-              <div className="absolute top-3 right-3 bg-background border border-border rounded-lg shadow-lg p-3 w-36 z-50">
+              {/* Validation Status */}
+              <div className="absolute bottom-3 left-3 z-50">
+                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border mb-2 ${overallValid ? 'bg-green-50 border-green-200 dark:bg-green-950/30 dark:border-green-800' : 'bg-red-50 border-red-200 dark:bg-red-950/30 dark:border-red-800'}`}>
+                  {overallValid ? (
+                    <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400 flex-shrink-0" />
+                  ) : (
+                    <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400 flex-shrink-0" />
+                  )}
+                  <span className={`text-sm font-medium ${overallValid ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}`}>
+                    {overallValid ? 'Valid Configuration' : 'Issues Found'}
+                  </span>
+                </div>
+                
+                {/* Issues list */}
+                {(!isValidPlacement || bylawValidation.violations.length > 0 || bylawValidation.warnings.length > 0) && (
+                  <div className="space-y-1">
+                    {/* Placement validation */}
+                    {!isValidPlacement && (
+                      <div className="text-xs text-red-600 dark:text-red-400">
+                        • ADU placement violates setbacks
+                      </div>
+                    )}
+                    
+                    {/* Bylaw violations */}
+                    {bylawValidation.violations.map((violation, index) => (
+                      <div key={index} className="text-xs text-red-600 dark:text-red-400">
+                        • {violation.message}
+                      </div>
+                    ))}
+                    
+                    {/* Warnings */}
+                    {bylawValidation.warnings.map((warning, index) => (
+                      <div key={index} className="text-xs text-yellow-600 dark:text-yellow-400">
+                        ⚠ {warning.message}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Floating Objects Panel */}
+              <div className="absolute top-1 right-3 bg-background border border-border rounded-lg shadow-lg p-3 w-36 z-50">
                 <div className="text-xs font-semibold text-foreground mb-2">
-                  Add Obstacles
+                  Add Objects
                 </div>
                 <div className="space-y-1">
                   {[
+                    { type: 'residence', icon: '🏠', label: 'Residence' },
                     { type: 'tree', icon: '🌳', label: 'Tree' },
                     { type: 'rock', icon: '🪨', label: 'Rock' },
-                    { type: 'structure', icon: '🏠', label: 'Structure' },
                     { type: 'shed', icon: '🏚️', label: 'Shed' },
                     { type: 'pool', icon: '🏊', label: 'Pool' },
                     { type: 'fence', icon: '🚧', label: 'Fence' },
@@ -1128,253 +1757,189 @@ export default function LotConfigurator() {
               </div>
 
               {/* Selected Element Info Panel */}
-              {selectedElement && (
-                <div className="absolute top-3 left-3 bg-background border border-border rounded-lg shadow-lg p-3 w-52 z-50">
-                  <div className="text-xs font-semibold text-foreground mb-3">
-                    {selectedElement.type === 'adu' ? 'ADU Properties' : 'Obstacle Properties'}
-                  </div>
-                  
-                  {selectedElement.type === 'adu' ? (
-                    <>
-                      {/* ADU Size Controls */}
-                      <div className="space-y-2 mb-3">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <Label className="text-xs">Width</Label>
-                            <input
-                              type="text"
-                              value={config.units === 'imperial' ? toFeetAndInches(config.aduWidth) : `${toDisplay(config.aduWidth)}m`}
-                              onChange={(e) => {
-                                const val = config.units === 'imperial' 
-                                  ? fromFeetAndInches(e.target.value)
-                                  : parseFloat(e.target.value.replace('m', '')) / FEET_TO_METERS
-                                if (!isNaN(val) && val > 0) {
-                                  updateConfigValue('aduWidth', Math.min(40, Math.max(10, val)))
-                                }
-                              }}
-                              className="text-xs font-mono w-16 px-1 py-0.5 border rounded text-right ml-auto"
-                            />
-                          </div>
-                          <input
-                            type="range"
-                            value={config.units === 'metric' ? parseFloat(toDisplay(config.aduWidth).toString()) : config.aduWidth}
-                            onChange={(e) => {
-                              const val = parseFloat(e.target.value)
-                              updateConfigValue('aduWidth', config.units === 'metric' ? Math.round(val / FEET_TO_METERS) : val)
-                            }}
-                            max={config.units === 'metric' ? 12 : 40}
-                            min={config.units === 'metric' ? 3 : 10}
-                            step={config.units === 'metric' ? 0.3 : 1}
-                            className="w-full h-1 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-                          />
-                        </div>
-                        
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <Label className="text-xs">Depth</Label>
-                            <input
-                              type="text"
-                              value={config.units === 'imperial' ? toFeetAndInches(config.aduDepth) : `${toDisplay(config.aduDepth)}m`}
-                              onChange={(e) => {
-                                const val = config.units === 'imperial' 
-                                  ? fromFeetAndInches(e.target.value)
-                                  : parseFloat(e.target.value.replace('m', '')) / FEET_TO_METERS
-                                if (!isNaN(val) && val > 0) {
-                                  updateConfigValue('aduDepth', Math.min(40, Math.max(10, val)))
-                                }
-                              }}
-                              className="text-xs font-mono w-16 px-1 py-0.5 border rounded text-right ml-auto"
-                            />
-                          </div>
-                          <input
-                            type="range"
-                            value={config.units === 'metric' ? parseFloat(toDisplay(config.aduDepth).toString()) : config.aduDepth}
-                            onChange={(e) => {
-                              const val = parseFloat(e.target.value)
-                              updateConfigValue('aduDepth', config.units === 'metric' ? Math.round(val / FEET_TO_METERS) : val)
-                            }}
-                            max={config.units === 'metric' ? 12 : 40}
-                            min={config.units === 'metric' ? 3 : 10}
-                            step={config.units === 'metric' ? 0.3 : 1}
-                            className="w-full h-1 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-                          />
-                        </div>
-                      </div>
-                      
-                      {/* ADU Position Controls */}
-                      <div className="space-y-2 mb-3 border-t border-border pt-2">
-                        <div className="text-xs font-semibold mb-1">Position</div>
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <Label className="text-xs">X</Label>
-                            <input
-                              type="text"
-                              value={config.units === 'imperial' ? toFeetAndInches(aduPosition.x) : `${toDisplay(aduPosition.x)}m`}
-                              onChange={(e) => {
-                                const val = config.units === 'imperial' 
-                                  ? fromFeetAndInches(e.target.value)
-                                  : parseFloat(e.target.value.replace('m', '')) / FEET_TO_METERS
-                                if (!isNaN(val) && val >= 0) {
-                                  setAduPosition(prev => ({ ...prev, x: Math.min(config.lotWidth - config.aduWidth, Math.max(0, val)) }))
-                                }
-                              }}
-                              className="text-xs font-mono w-16 px-1 py-0.5 border rounded text-right ml-auto"
-                            />
-                          </div>
-                          <input
-                            type="range"
-                            value={config.units === 'metric' ? parseFloat(toDisplay(aduPosition.x).toString()) : aduPosition.x}
-                            onChange={(e) => {
-                              const val = parseFloat(e.target.value)
-                              const newX = config.units === 'metric' ? val / FEET_TO_METERS : val
-                              setAduPosition(prev => ({ ...prev, x: newX }))
-                            }}
-                            max={config.units === 'metric' ? parseFloat(toDisplay(config.lotWidth - config.aduWidth).toString()) : config.lotWidth - config.aduWidth}
-                            min={0}
-                            step={config.units === 'metric' ? 0.3 : 1}
-                            className="w-full h-1 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-                          />
-                        </div>
-                        
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <Label className="text-xs">Y</Label>
-                            <input
-                              type="text"
-                              value={config.units === 'imperial' ? toFeetAndInches(aduPosition.y) : `${toDisplay(aduPosition.y)}m`}
-                              onChange={(e) => {
-                                const val = config.units === 'imperial' 
-                                  ? fromFeetAndInches(e.target.value)
-                                  : parseFloat(e.target.value.replace('m', '')) / FEET_TO_METERS
-                                if (!isNaN(val) && val >= 0) {
-                                  setAduPosition(prev => ({ ...prev, y: Math.min(config.lotDepth - config.aduDepth, Math.max(0, val)) }))
-                                }
-                              }}
-                              className="text-xs font-mono w-16 px-1 py-0.5 border rounded text-right ml-auto"
-                            />
-                          </div>
-                          <input
-                            type="range"
-                            value={config.units === 'metric' ? parseFloat(toDisplay(aduPosition.y).toString()) : aduPosition.y}
-                            onChange={(e) => {
-                              const val = parseFloat(e.target.value)
-                              const newY = config.units === 'metric' ? val / FEET_TO_METERS : val
-                              setAduPosition(prev => ({ ...prev, y: newY }))
-                            }}
-                            max={config.units === 'metric' ? parseFloat(toDisplay(config.lotDepth - config.aduDepth).toString()) : config.lotDepth - config.aduDepth}
-                            min={0}
-                            step={config.units === 'metric' ? 0.3 : 1}
-                            className="w-full h-1 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-                          />
-                        </div>
-                      </div>
-                      
-                      {/* ADU Info Display */}
-                      <div className="space-y-1 text-xs border-t border-border pt-2">
-                        <div className="flex justify-between">
-                          <span>Area:</span>
-                          <span className="font-mono">{toDisplay(config.aduWidth * config.aduDepth, true)} {getUnitLabel(true)}</span>
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    (() => {
-                      const obstacle = obstacles.find(o => o.id === selectedElement.id)
-                      return obstacle ? (
-                        <>
-                          {/* Obstacle Size Controls */}
-                          <div className="space-y-2 mb-3">
-                            <div className="flex justify-between items-center text-xs mb-2">
-                              <span>Type:</span>
-                              <span className="capitalize font-medium">{obstacle.type}</span>
+              <div className="absolute top-3 left-3 bg-background border border-border rounded-lg shadow-lg p-3 w-52 z-50">
+                <div className="text-xs font-semibold text-foreground mb-3">
+                  {selectedElement?.type === 'adu' ? 'ADU Properties' : 'Object Properties'}
+                </div>
+                
+                {selectedElement ? (
+                  (() => {
+                    // Get the current element data
+                    const isADU = selectedElement.type === 'adu'
+                    const obstacle = isADU ? null : obstacles.find(o => o.id === selectedElement.id)
+                    
+                    const currentWidth = isADU ? config.aduWidth : obstacle?.width || 0
+                    const currentDepth = isADU ? config.aduDepth : obstacle?.depth || 0
+                    const currentX = isADU ? aduPosition.x : obstacle?.x || 0
+                    const currentY = isADU ? aduPosition.y : obstacle?.y || 0
+                    
+                    const updateWidth = (val: number) => {
+                      if (isADU) {
+                        updateConfigValue('aduWidth', Math.min(40, Math.max(10, val)))
+                      } else if (obstacle) {
+                        setObstacles(prev => prev.map(obs => 
+                          obs.id === obstacle.id ? { ...obs, width: Math.min(50, Math.max(5, val)) } : obs
+                        ))
+                      }
+                    }
+                    
+                    const updateDepth = (val: number) => {
+                      if (isADU) {
+                        updateConfigValue('aduDepth', Math.min(40, Math.max(10, val)))
+                      } else if (obstacle) {
+                        setObstacles(prev => prev.map(obs => 
+                          obs.id === obstacle.id ? { ...obs, depth: Math.min(50, Math.max(5, val)) } : obs
+                        ))
+                      }
+                    }
+                    
+                    const updateX = (val: number) => {
+                      if (isADU) {
+                        setAduPosition(prev => ({ ...prev, x: Math.min(config.lotWidth - config.aduWidth, Math.max(0, val)) }))
+                      } else if (obstacle) {
+                        setObstacles(prev => prev.map(obs => 
+                          obs.id === obstacle.id ? { ...obs, x: Math.min(config.lotWidth - obs.width, Math.max(0, val)) } : obs
+                        ))
+                      }
+                    }
+                    
+                    const updateY = (val: number) => {
+                      if (isADU) {
+                        setAduPosition(prev => ({ ...prev, y: Math.min(config.lotDepth - config.aduDepth, Math.max(0, val)) }))
+                      } else if (obstacle) {
+                        setObstacles(prev => prev.map(obs => 
+                          obs.id === obstacle.id ? { ...obs, y: Math.min(config.lotDepth - obs.depth, Math.max(0, val)) } : obs
+                        ))
+                      }
+                    }
+                    
+                    if (!isADU && !obstacle) return null
+                    
+                    return (
+                      <>
+                        {/* Size Controls */}
+                        <div className="space-y-2 mb-3">
+                          {/* Module preset notice for ADUs */}
+                          {isADU && aduModule !== 'custom' && (
+                            <div className="flex items-center gap-1.5 text-xs text-blue-600 bg-blue-50/50 border border-dashed border-blue-200 px-2.5 py-1.5 rounded-md mb-2">
+                              <Info className="h-3.5 w-3.5" />
+                              <span>Set by module preset</span>
                             </div>
-                            
+                          )}
+                          <div className="grid grid-cols-2 gap-2">
                             <div className="space-y-1">
-                              <div className="flex justify-between items-center">
+                              <div className="flex items-center gap-1 mb-1">
                                 <Label className="text-xs">Width</Label>
-                                <span className="text-xs font-mono">{toDisplay(obstacle.width)} {getUnitLabel()}</span>
+                                <input
+                                  type="text"
+                                  value={config.units === 'imperial' ? toFeetAndInches(currentWidth) : `${toDisplay(currentWidth)}m`}
+                                  onChange={(e) => {
+                                    const val = config.units === 'imperial' 
+                                      ? fromFeetAndInches(e.target.value)
+                                      : parseFloat(e.target.value.replace('m', '')) / FEET_TO_METERS
+                                    if (!isNaN(val) && val > 0) {
+                                      updateWidth(val)
+                                    }
+                                  }}
+                                  disabled={isADU && aduModule !== 'custom'}
+                                  className={`text-xs font-mono w-12 px-1 py-0.5 border rounded text-right ml-auto transition-all duration-75 ease-out ${
+                                    isADU && aduModule !== 'custom'
+                                      ? 'bg-muted text-muted-foreground cursor-not-allowed' 
+                                      : ''
+                                  }`}
+                                />
                               </div>
                               <input
                                 type="range"
-                                value={config.units === 'metric' ? parseFloat(toDisplay(obstacle.width).toString()) : obstacle.width}
+                                value={config.units === 'metric' ? parseFloat(toDisplay(currentWidth).toString()) : currentWidth}
                                 onChange={(e) => {
                                   const val = parseFloat(e.target.value)
-                                  const newWidth = config.units === 'metric' ? Math.round(val / FEET_TO_METERS) : val
-                                  setObstacles(prev => prev.map(obs => 
-                                    obs.id === obstacle.id 
-                                      ? { ...obs, width: newWidth }
-                                      : obs
-                                  ))
+                                  updateWidth(config.units === 'metric' ? Math.round(val / FEET_TO_METERS) : val)
                                 }}
-                                max={config.units === 'metric' ? 15 : 50}
-                                min={config.units === 'metric' ? 1.5 : 5}
+                                max={config.units === 'metric' ? (isADU ? 12 : 15) : (isADU ? 40 : 50)}
+                                min={config.units === 'metric' ? (isADU ? 3 : 1.5) : (isADU ? 10 : 5)}
                                 step={config.units === 'metric' ? 0.3 : 1}
-                                className="w-full h-1 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                                disabled={isADU && aduModule !== 'custom'}
+                                className={`w-full h-1 bg-muted rounded-lg appearance-none ${
+                                  isADU && aduModule !== 'custom'
+                                    ? 'cursor-not-allowed opacity-50'
+                                    : 'cursor-pointer accent-primary'
+                                }`}
                               />
                             </div>
                             
                             <div className="space-y-1">
-                              <div className="flex justify-between items-center">
+                              <div className="flex items-center gap-1 mb-1">
                                 <Label className="text-xs">Depth</Label>
-                                <span className="text-xs font-mono">{toDisplay(obstacle.depth)} {getUnitLabel()}</span>
+                                <input
+                                  type="text"
+                                  value={config.units === 'imperial' ? toFeetAndInches(currentDepth) : `${toDisplay(currentDepth)}m`}
+                                  onChange={(e) => {
+                                    const val = config.units === 'imperial' 
+                                      ? fromFeetAndInches(e.target.value)
+                                      : parseFloat(e.target.value.replace('m', '')) / FEET_TO_METERS
+                                    if (!isNaN(val) && val > 0) {
+                                      updateDepth(val)
+                                    }
+                                  }}
+                                  disabled={isADU && aduModule !== 'custom'}
+                                  className={`text-xs font-mono w-12 px-1 py-0.5 border rounded text-right ml-auto transition-all duration-75 ease-out ${
+                                    isADU && aduModule !== 'custom'
+                                      ? 'bg-muted text-muted-foreground cursor-not-allowed' 
+                                      : ''
+                                  }`}
+                                />
                               </div>
                               <input
                                 type="range"
-                                value={config.units === 'metric' ? parseFloat(toDisplay(obstacle.depth).toString()) : obstacle.depth}
+                                value={config.units === 'metric' ? parseFloat(toDisplay(currentDepth).toString()) : currentDepth}
                                 onChange={(e) => {
                                   const val = parseFloat(e.target.value)
-                                  const newDepth = config.units === 'metric' ? Math.round(val / FEET_TO_METERS) : val
-                                  setObstacles(prev => prev.map(obs => 
-                                    obs.id === obstacle.id 
-                                      ? { ...obs, depth: newDepth }
-                                      : obs
-                                  ))
+                                  updateDepth(config.units === 'metric' ? Math.round(val / FEET_TO_METERS) : val)
                                 }}
-                                max={config.units === 'metric' ? 15 : 50}
-                                min={config.units === 'metric' ? 1.5 : 5}
+                                max={config.units === 'metric' ? (isADU ? 12 : 15) : (isADU ? 40 : 50)}
+                                min={config.units === 'metric' ? (isADU ? 3 : 1.5) : (isADU ? 10 : 5)}
                                 step={config.units === 'metric' ? 0.3 : 1}
-                                className="w-full h-1 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                                disabled={isADU && aduModule !== 'custom'}
+                                className={`w-full h-1 bg-muted rounded-lg appearance-none ${
+                                  isADU && aduModule !== 'custom'
+                                    ? 'cursor-not-allowed opacity-50'
+                                    : 'cursor-pointer accent-primary'
+                                }`}
                               />
                             </div>
                           </div>
-                          
-                          {/* Obstacle Position Controls */}
-                          <div className="space-y-2 mb-3 border-t border-border pt-2">
-                            <div className="text-xs font-semibold mb-1">Position</div>
+                        </div>
+                        
+                        {/* Position Controls */}
+                        <div className="space-y-2 mb-3 border-t border-border pt-2">
+                          <div className="text-xs font-semibold mb-1">Position</div>
+                          <div className="grid grid-cols-2 gap-2">
                             <div className="space-y-1">
-                              <div className="flex items-center gap-2 mb-1">
+                              <div className="flex items-center gap-1 mb-1">
                                 <Label className="text-xs">X</Label>
                                 <input
                                   type="text"
-                                  value={config.units === 'imperial' ? toFeetAndInches(obstacle.x) : `${toDisplay(obstacle.x)}m`}
+                                  value={config.units === 'imperial' ? toFeetAndInches(currentX) : `${toDisplay(currentX)}m`}
                                   onChange={(e) => {
                                     const val = config.units === 'imperial' 
                                       ? fromFeetAndInches(e.target.value)
                                       : parseFloat(e.target.value.replace('m', '')) / FEET_TO_METERS
                                     if (!isNaN(val) && val >= 0) {
-                                      setObstacles(prev => prev.map(obs => 
-                                        obs.id === obstacle.id 
-                                          ? { ...obs, x: Math.min(config.lotWidth - obs.width, Math.max(0, val)) }
-                                          : obs
-                                      ))
+                                      updateX(val)
                                     }
                                   }}
-                                  className="text-xs font-mono w-16 px-1 py-0.5 border rounded text-right ml-auto"
+                                  className="text-xs font-mono w-12 px-1 py-0.5 border rounded text-right ml-auto"
                                 />
                               </div>
                               <input
                                 type="range"
-                                value={config.units === 'metric' ? parseFloat(toDisplay(obstacle.x).toString()) : obstacle.x}
+                                value={config.units === 'metric' ? parseFloat(toDisplay(currentX).toString()) : currentX}
                                 onChange={(e) => {
                                   const val = parseFloat(e.target.value)
-                                  const newX = config.units === 'metric' ? val / FEET_TO_METERS : val
-                                  setObstacles(prev => prev.map(obs => 
-                                    obs.id === obstacle.id 
-                                      ? { ...obs, x: newX }
-                                      : obs
-                                  ))
+                                  updateX(config.units === 'metric' ? val / FEET_TO_METERS : val)
                                 }}
-                                max={config.units === 'metric' ? parseFloat(toDisplay(config.lotWidth - obstacle.width).toString()) : config.lotWidth - obstacle.width}
+                                max={config.units === 'metric' ? parseFloat(toDisplay(config.lotWidth - currentWidth).toString()) : config.lotWidth - currentWidth}
                                 min={0}
                                 step={config.units === 'metric' ? 0.3 : 1}
                                 className="w-full h-1 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
@@ -1382,57 +1947,87 @@ export default function LotConfigurator() {
                             </div>
                             
                             <div className="space-y-1">
-                              <div className="flex items-center gap-2 mb-1">
+                              <div className="flex items-center gap-1 mb-1">
                                 <Label className="text-xs">Y</Label>
                                 <input
                                   type="text"
-                                  value={config.units === 'imperial' ? toFeetAndInches(obstacle.y) : `${toDisplay(obstacle.y)}m`}
+                                  value={config.units === 'imperial' ? toFeetAndInches(currentY) : `${toDisplay(currentY)}m`}
                                   onChange={(e) => {
                                     const val = config.units === 'imperial' 
                                       ? fromFeetAndInches(e.target.value)
                                       : parseFloat(e.target.value.replace('m', '')) / FEET_TO_METERS
                                     if (!isNaN(val) && val >= 0) {
-                                      setObstacles(prev => prev.map(obs => 
-                                        obs.id === obstacle.id 
-                                          ? { ...obs, y: Math.min(config.lotDepth - obs.depth, Math.max(0, val)) }
-                                          : obs
-                                      ))
+                                      updateY(val)
                                     }
                                   }}
-                                  className="text-xs font-mono w-16 px-1 py-0.5 border rounded text-right ml-auto"
+                                  className="text-xs font-mono w-12 px-1 py-0.5 border rounded text-right ml-auto"
                                 />
                               </div>
                               <input
                                 type="range"
-                                value={config.units === 'metric' ? parseFloat(toDisplay(obstacle.y).toString()) : obstacle.y}
+                                value={config.units === 'metric' ? parseFloat(toDisplay(currentY).toString()) : currentY}
                                 onChange={(e) => {
                                   const val = parseFloat(e.target.value)
-                                  const newY = config.units === 'metric' ? val / FEET_TO_METERS : val
-                                  setObstacles(prev => prev.map(obs => 
-                                    obs.id === obstacle.id 
-                                      ? { ...obs, y: newY }
-                                      : obs
-                                  ))
+                                  updateY(config.units === 'metric' ? val / FEET_TO_METERS : val)
                                 }}
-                                max={config.units === 'metric' ? parseFloat(toDisplay(config.lotDepth - obstacle.depth).toString()) : config.lotDepth - obstacle.depth}
+                                max={config.units === 'metric' ? parseFloat(toDisplay(config.lotDepth - currentDepth).toString()) : config.lotDepth - currentDepth}
                                 min={0}
                                 step={config.units === 'metric' ? 0.3 : 1}
                                 className="w-full h-1 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
                               />
                             </div>
                           </div>
-                        </>
-                      ) : null
-                    })()
-                  )}
-                  
-                  <div className="border-t border-border pt-2 mt-2">
+                        </div>
+                        
+                        {/* Rotate Button */}
+                        <div className="border-t border-border pt-2 mb-3">
+                          <Button
+                            onClick={() => {
+                              if (isADU && aduModule !== 'custom') {
+                                // For preset modules, toggle rotation state
+                                setIsModuleRotated(!isModuleRotated)
+                              } else {
+                                // For custom or obstacles, just swap dimensions
+                                const newWidth = currentDepth
+                                const newDepth = currentWidth
+                                updateWidth(newWidth)
+                                updateDepth(newDepth)
+                              }
+                            }}
+                            size="sm"
+                            variant="outline"
+                            className="w-full h-7 text-xs"
+                          >
+                            <RotateCcw className="h-3 w-3 mr-1" />
+                            Rotate
+                          </Button>
+                        </div>
+                        
+                        {/* Info Display */}
+                        <div className="space-y-1 text-xs border-t border-border pt-2">
+                          <div className="flex justify-between">
+                            <span>Area:</span>
+                            <span className="font-mono">{toDisplay(currentWidth * currentDepth, true)} {getUnitLabel(true)}</span>
+                          </div>
+                        </div>
+                        
+                        {/* Info Display */}
+                        <div className="border-t border-border pt-2 mt-2">
+                          <div className="text-xs text-muted-foreground">
+                            Drag to move • Drag corner to resize
+                          </div>
+                        </div>
+                      </>
+                    )
+                  })()
+                ) : (
+                  <div className="text-center py-4">
                     <div className="text-xs text-muted-foreground">
-                      Drag to move • Drag corner to resize
+                      Click on an ADU or object to view its properties
                     </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </CardContent>
           </Card>
         </main>
