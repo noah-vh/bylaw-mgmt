@@ -119,6 +119,557 @@ function getMunicipalityBadgeConfig(bylawData: any) {
   }
 }
 
+// Report Modal Component
+interface ReportModalProps {
+  config: Config;
+  obstacles: Obstacle[];
+  bylawValidation: BylawValidationResult;
+  selectedMunicipalityData: MunicipalityWithBylawData | null;
+  canvasRef: React.RefObject<HTMLCanvasElement>;
+  visualizationContainerRef: React.RefObject<HTMLDivElement>;
+  aduPosition: { x: number; y: number };
+  scale: number;
+  containerDimensions: { width: number; height: number };
+  onClose: () => void;
+}
+
+function ReportModal({ config, obstacles, bylawValidation, selectedMunicipalityData, canvasRef, visualizationContainerRef, aduPosition, scale, containerDimensions, onClose }: ReportModalProps) {
+  const generateDetailedReport = () => {
+    const municipality = selectedMunicipalityData?.name || 'Unknown Municipality'
+    
+    const timestamp = new Date().toLocaleDateString('en-US', { 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    })
+
+    // Calculate metrics
+    const lotArea = config.lotWidth * config.lotDepth
+    const mainBuildingArea = config.mainBuildingWidth * config.mainBuildingDepth
+    const aduArea = config.aduWidth * config.aduDepth
+    const totalBuildingFootprint = mainBuildingArea + aduArea
+    const lotCoveragePercent = (totalBuildingFootprint / lotArea * 100).toFixed(1)
+    const remainingYardSpace = lotArea - totalBuildingFootprint
+
+    return {
+      municipality,
+      property: {
+        lotSize: `${config.lotWidth}' × ${config.lotDepth}'`,
+        lotArea: `${lotArea.toLocaleString()} sq ft`,
+        buildableArea: `${(lotArea * 0.75).toLocaleString()} sq ft`, // Approximate
+        frontage: `${config.lotWidth}'`,
+        depth: `${config.lotDepth}'`,
+      },
+      mainBuilding: {
+        size: `${config.mainBuildingWidth}' × ${config.mainBuildingDepth}'`,
+        area: `${mainBuildingArea.toLocaleString()} sq ft`,
+        position: `${config.mainBuildingY}' from front, ${config.mainBuildingX}' from west side`,
+      },
+      adu: {
+        type: config.aduType || 'detached',
+        size: `${config.aduWidth}' × ${config.aduDepth}'`,
+        area: `${aduArea.toLocaleString()} sq ft`,
+        stories: config.aduStories || 1,
+        position: `${config.aduPosition?.y || 0}' from front, ${config.aduPosition?.x || 0}' from west side`,
+        distanceFromMain: '15 ft', // Approximate
+      },
+      setbacks: {
+        front: `${selectedMunicipalityData?.bylaw_data?.front_setback_min_ft || 20}'`,
+        rear: `${selectedMunicipalityData?.bylaw_data?.rear_setback_standard_ft || 25}'`,
+        side: `${selectedMunicipalityData?.bylaw_data?.side_setback_interior_ft || 4}'`,
+      },
+      compliance: {
+        isValid: bylawValidation.isValid,
+        violations: bylawValidation.violations.length,
+        warnings: bylawValidation.warnings.length,
+        details: [...bylawValidation.violations, ...bylawValidation.warnings].map(item => ({
+          type: item.type,
+          message: item.message,
+          requirement: item.details || item.requirement
+        }))
+      },
+      calculations: {
+        lotCoverage: `${lotCoveragePercent}% (${totalBuildingFootprint.toLocaleString()} sq ft / ${lotArea.toLocaleString()} sq ft)`,
+        separationDistance: '15 ft',
+        totalBuildingFootprint: `${totalBuildingFootprint.toLocaleString()} sq ft`,
+        remainingYardSpace: `${remainingYardSpace.toLocaleString()} sq ft`,
+      },
+      siteFeatures: obstacles.map(obstacle => ({
+        type: obstacle.type,
+        name: obstacle.name || obstacle.type,
+        position: `${obstacle.x}', ${obstacle.y}' from front`,
+        size: `${obstacle.width}' × ${obstacle.depth}'`
+      }))
+    }
+  }
+
+  const report = generateDetailedReport()
+  const statusColor = report.compliance.isValid ? 'bg-green-600' : 'bg-red-600'
+  const statusText = report.compliance.isValid ? 'COMPLIANT - Configuration meets bylaw requirements' : 'NON-COMPLIANT - Issues require resolution'
+
+  const handlePrint = () => {
+    const reportContent = document.getElementById('modal-report-content')
+    if (!reportContent) return
+
+    // Create hidden iframe for seamless printing
+    const iframe = document.createElement('iframe')
+    iframe.style.position = 'absolute'
+    iframe.style.top = '-10000px'
+    iframe.style.left = '-10000px'
+    iframe.style.width = '1px'
+    iframe.style.height = '1px'
+    document.body.appendChild(iframe)
+
+    const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document
+    if (!iframeDoc) return
+
+    // Get current page styles
+    const stylesheets = Array.from(document.styleSheets)
+    let allStyles = ''
+    
+    try {
+      stylesheets.forEach(sheet => {
+        try {
+          if (sheet.cssRules) {
+            Array.from(sheet.cssRules).forEach(rule => {
+              allStyles += rule.cssText + '\n'
+            })
+          }
+        } catch (e) {
+          // Skip cross-origin stylesheets
+        }
+      })
+    } catch (e) {
+      console.log('Could not access some stylesheets')
+    }
+
+    // Write content to iframe
+    iframeDoc.open()
+    iframeDoc.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>ADU Configuration Report - ${report.municipality}</title>
+          <meta charset="utf-8">
+          <style>
+            ${allStyles}
+            
+            body {
+              margin: 0;
+              padding: 20px;
+              background: white;
+              font-family: ui-sans-serif, system-ui, sans-serif;
+            }
+            
+            .print-content {
+              max-width: 800px;
+              margin: 0 auto;
+              background: white;
+            }
+            
+            @media print {
+              body { margin: 0; padding: 15px; }
+              .print-content { max-width: none; margin: 0; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="print-content">
+            ${reportContent.outerHTML}
+          </div>
+        </body>
+      </html>
+    `)
+    iframeDoc.close()
+
+    // Wait for content to load, then print
+    setTimeout(() => {
+      try {
+        iframe.contentWindow?.focus()
+        iframe.contentWindow?.print()
+        
+        // Clean up iframe after a delay
+        setTimeout(() => {
+          document.body.removeChild(iframe)
+        }, 1000)
+      } catch (error) {
+        console.error('Print failed:', error)
+        // Fallback to window print if iframe fails
+        window.print()
+        document.body.removeChild(iframe)
+      }
+    }, 500)
+  }
+
+
+  // Helper functions for visualization (same as main component)
+  const calculateBuildableArea = () => {
+    return {
+      left: config.sideSetback,
+      right: config.lotWidth - config.sideSetback,
+      top: config.frontSetback,
+      bottom: config.lotDepth - config.rearSetback,
+      width: config.lotWidth - (config.sideSetback * 2),
+      height: config.lotDepth - config.frontSetback - config.rearSetback
+    }
+  }
+
+  const toDisplay = (value: number, isArea: boolean = false) => {
+    return (value * 3.28084).toFixed(1) // Convert to feet
+  }
+
+  const getUnitLabel = (isArea: boolean = false) => {
+    return isArea ? 'sq ft' : 'ft'
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-lg shadow-xl max-w-5xl w-full max-h-[90vh] flex flex-col">
+          {/* Modal Header */}
+          <div className="flex items-center justify-between p-4 border-b border-gray-200">
+            <h3 className="text-lg font-semibold text-gray-900">ADU Configuration Report</h3>
+            <div className="flex items-center space-x-2">
+              <Button onClick={handlePrint} variant="outline" size="sm">
+                Download PDF
+              </Button>
+              <Button onClick={onClose} variant="ghost" size="sm">
+                ×
+              </Button>
+            </div>
+          </div>
+
+          {/* Document Content */}
+          <div className="flex-1 overflow-y-auto p-6">
+            <div id="modal-report-content" className="space-y-6">
+          {/* Title Section */}
+          <div className="text-center border-b border-gray-200 pb-6">
+            <h1 className="text-2xl font-bold text-gray-800 mb-2">
+              ACCESSORY DWELLING UNIT<br/>
+              LOT CONFIGURATION REPORT
+            </h1>
+            <div className="text-lg text-gray-600 space-y-1">
+              <p>Municipality: {report.municipality}</p>
+              <p>Generated: {new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+            </div>
+          </div>
+
+          {/* Executive Summary */}
+          <section>
+            <h2 className="text-lg font-bold text-black mb-3">EXECUTIVE SUMMARY</h2>
+            
+            <div className={`${statusColor} text-white p-3 rounded mb-3`}>
+              <p className="font-bold text-sm">{statusText}</p>
+            </div>
+
+            <div className="space-y-1 text-gray-700 text-sm">
+              <p>• ADU Type: {report.adu.type.toUpperCase()}</p>
+              <p>• Floor Area: {report.adu.area}</p>  
+              <p>• Lot Coverage: {report.calculations.lotCoverage}</p>
+              <p>• Compliance Issues: {report.compliance.violations + report.compliance.warnings} total</p>
+            </div>
+          </section>
+
+          {/* Site Layout Visualization */}
+          <section>
+            <h2 className="text-lg font-bold text-black mb-3">SITE LAYOUT VISUALIZATION</h2>
+            <div className="border border-gray-300 bg-gray-50 p-3 rounded">
+              <div className="flex justify-center">
+                {(() => {
+                  // Calculate scale to fit lot in modal container
+                  const maxWidth = 500
+                  const maxHeight = 350
+                  const modalScale = Math.min(maxWidth / config.lotWidth, maxHeight / config.lotDepth) * 0.85 // 0.85 for padding
+                  
+                  return (
+                    <div
+                      className="relative bg-background border-2 border-border rounded-lg shadow-lg overflow-hidden"
+                      style={{
+                        width: config.lotWidth * modalScale + 'px',
+                        height: config.lotDepth * modalScale + 'px',
+                        maxWidth: '100%',
+                        maxHeight: '350px',
+                        backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 19px, hsl(var(--border)) 19px, hsl(var(--border)) 20px), repeating-linear-gradient(90deg, transparent, transparent 19px, hsl(var(--border)) 19px, hsl(var(--border)) 20px)',
+                        backgroundSize: `${Math.max(3, Math.min(15, 5 * modalScale))}px ${Math.max(3, Math.min(15, 5 * modalScale))}px`
+                      }}
+                    >
+                      {/* Buildable Area */}
+                      <div
+                        className="absolute bg-green-50/80 border-2 border-dashed border-green-400 rounded dark:bg-green-950/30 dark:border-green-600"
+                        style={{
+                          left: config.sideSetback * modalScale + 'px',
+                          top: config.frontSetback * modalScale + 'px',
+                          width: Math.max(0, (config.lotWidth - 2 * config.sideSetback) * modalScale) + 'px',
+                          height: Math.max(0, (config.lotDepth - config.frontSetback - config.rearSetback) * modalScale) + 'px'
+                        }}
+                      />
+
+                      {/* Objects */}
+                      {obstacles.map((obstacle) => {
+                        const icons: Record<string, string> = {
+                          tree: '🌳',
+                          rock: '🪨',
+                          residence: '🏠',
+                          shed: '🏚️',
+                          pool: '🏊',
+                          fence: '🚧',
+                          other: '📦'
+                        }
+
+                        return (
+                          <div
+                            key={obstacle.id}
+                            className={`absolute border-2 text-xs font-semibold flex items-center justify-center select-none z-10 ${
+                              obstacle.type === 'tree' ? 'bg-green-500 border-green-700 rounded-full text-white' :
+                              obstacle.type === 'rock' ? 'bg-gray-500 border-gray-700 rounded-lg text-white' :
+                              obstacle.type === 'residence' ? 'bg-orange-500 border-orange-700 rounded-lg text-white' :
+                              obstacle.type === 'shed' ? 'bg-purple-500 border-purple-700 rounded-lg text-white' :
+                              obstacle.type === 'pool' ? 'bg-blue-500 border-blue-700 rounded-xl text-white' :
+                              obstacle.type === 'fence' ? 'bg-red-500 border-red-700 rounded-lg text-white' :
+                              'bg-yellow-500 border-yellow-700 rounded-lg text-white'
+                            }`}
+                            style={{
+                              left: obstacle.x * modalScale + 'px',
+                              top: obstacle.y * modalScale + 'px',
+                              width: obstacle.width * modalScale + 'px',
+                              height: obstacle.depth * modalScale + 'px'
+                            }}
+                          >
+                            {icons[obstacle.type] || icons.other}
+                          </div>
+                        )
+                      })}
+
+                      {/* Separation boundaries for residences */}
+                      {obstacles.filter(o => o.type === 'residence').map((residence) => (
+                        <div
+                          key={`boundary-${residence.id}`}
+                          className="absolute border border-orange-400 border-dashed pointer-events-none z-5"
+                          style={{
+                            left: (residence.x - config.separationFromMain) * modalScale + 'px',
+                            top: (residence.y - config.separationFromMain) * modalScale + 'px',
+                            width: (residence.width + 2 * config.separationFromMain) * modalScale + 'px',
+                            height: (residence.depth + 2 * config.separationFromMain) * modalScale + 'px'
+                          }}
+                        />
+                      ))}
+
+                      {/* ADU Unit */}
+                      <div
+                        className={`absolute border-2 text-white font-semibold flex items-center justify-center select-none shadow-lg rounded-lg z-20 text-xs ${
+                          bylawValidation.violations.length > 0 ? 'bg-red-500 border-red-700' : 'bg-blue-600 border-blue-800'
+                        }`}
+                        style={{
+                          width: config.aduWidth * modalScale + 'px',
+                          height: config.aduDepth * modalScale + 'px',
+                          left: aduPosition.x * modalScale + 'px',
+                          top: aduPosition.y * modalScale + 'px'
+                        }}
+                      >
+                        ADU
+                      </div>
+                    </div>
+                  )
+                })()}
+              </div>
+              <p className="text-center text-xs text-gray-600 mt-2">
+                Current lot configuration showing ADU placement, setbacks, and site features
+              </p>
+            </div>
+          </section>
+
+          {/* Property Information */}
+          <section>
+            <h2 className="text-lg font-bold text-black mb-3">PROPERTY INFORMATION</h2>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div><span className="font-bold">Lot Dimensions:</span> {report.property.lotSize}</div>
+              <div><span className="font-bold">Total Lot Area:</span> {report.property.lotArea}</div>
+              <div><span className="font-bold">Buildable Area:</span> {report.property.buildableArea}</div>
+              <div><span className="font-bold">Frontage:</span> {report.property.frontage}</div>
+              <div><span className="font-bold">Depth:</span> {report.property.depth}</div>
+              <div><span className="font-bold">Corner Lot:</span> {config.cornerLot ? 'Yes' : 'No'}</div>
+              <div><span className="font-bold">Alley Access:</span> {config.alleyAccess ? 'Yes' : 'No'}</div>
+              <div><span className="font-bold">Zoning:</span> {selectedMunicipalityData?.zoning || 'Not specified'}</div>
+            </div>
+          </section>
+
+          {/* Main Building */}
+          <section>
+            <h2 className="text-lg font-bold text-black mb-3">MAIN BUILDING</h2>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div><span className="font-bold">Dimensions:</span> {config.mainBuildingWidth}' × {config.mainBuildingDepth}'</div>
+              <div><span className="font-bold">Floor Area:</span> {(config.mainBuildingWidth * config.mainBuildingDepth).toLocaleString()} sq ft</div>
+              <div><span className="font-bold">Position:</span> {config.mainBuildingY}' from front, {config.mainBuildingX}' from west side</div>
+              <div><span className="font-bold">Stories:</span> {config.mainBuildingStories || 2}</div>
+            </div>
+          </section>
+
+          {/* ADU Configuration */}
+          <section>
+            <h2 className="text-lg font-bold text-black mb-3">ADU CONFIGURATION</h2>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div><span className="font-bold">Type:</span> {config.aduType?.charAt(0).toUpperCase()}{config.aduType?.slice(1)} ADU</div>
+              <div><span className="font-bold">Dimensions:</span> {config.aduWidth}' × {config.aduDepth}'</div>
+              <div><span className="font-bold">Floor Area:</span> {(config.aduWidth * config.aduDepth).toLocaleString()} sq ft</div>
+              <div><span className="font-bold">Stories:</span> {config.aduStories || 1}</div>
+              <div><span className="font-bold">Position on Lot:</span> {aduPosition.y}' from front, {aduPosition.x}' from west side</div>
+              <div><span className="font-bold">Distance from Main:</span> {Math.sqrt(Math.pow(aduPosition.x - config.mainBuildingX, 2) + Math.pow(aduPosition.y - config.mainBuildingY, 2)).toFixed(1)}' (calculated)</div>
+            </div>
+          </section>
+
+          {/* Municipal Bylaw Requirements */}
+          {selectedMunicipalityData?.bylaw_data && (
+            <section>
+              <h2 className="text-lg font-bold text-black mb-3">MUNICIPAL BYLAW REQUIREMENTS</h2>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div><span className="font-bold">Minimum Lot Width:</span> {selectedMunicipalityData.bylaw_data.min_lot_width_ft ? `${selectedMunicipalityData.bylaw_data.min_lot_width_ft}'` : 'Not specified'}</div>
+                <div><span className="font-bold">Front Setback (min):</span> {selectedMunicipalityData.bylaw_data.front_setback_min_ft ? `${selectedMunicipalityData.bylaw_data.front_setback_min_ft}'` : 'Not specified'}</div>
+                <div><span className="font-bold">Rear Setback (standard):</span> {selectedMunicipalityData.bylaw_data.rear_setback_standard_ft ? `${selectedMunicipalityData.bylaw_data.rear_setback_standard_ft}'` : 'Not specified'}</div>
+                <div><span className="font-bold">Rear Setback (w/ alley):</span> {selectedMunicipalityData.bylaw_data.rear_setback_with_alley_ft ? `${selectedMunicipalityData.bylaw_data.rear_setback_with_alley_ft}'` : 'Same as standard'}</div>
+                <div><span className="font-bold">Side Setback (interior):</span> {selectedMunicipalityData.bylaw_data.side_setback_interior_ft ? `${selectedMunicipalityData.bylaw_data.side_setback_interior_ft}'` : 'Not specified'}</div>
+                <div><span className="font-bold">Side Setback (corner st.):</span> {selectedMunicipalityData.bylaw_data.side_setback_corner_street_ft ? `${selectedMunicipalityData.bylaw_data.side_setback_corner_street_ft}'` : 'Same as interior'}</div>
+                <div><span className="font-bold">Max ADU Size:</span> {selectedMunicipalityData.bylaw_data.max_adu_size_sqft ? `${selectedMunicipalityData.bylaw_data.max_adu_size_sqft} sq ft` : 'Not specified'}</div>
+                <div><span className="font-bold">Max Lot Coverage:</span> {selectedMunicipalityData.bylaw_data.max_lot_coverage_percent ? `${selectedMunicipalityData.bylaw_data.max_lot_coverage_percent}%` : 'Not specified'}</div>
+                <div className="col-span-2"><span className="font-bold">Permitted ADU Types:</span> {
+                  selectedMunicipalityData.bylaw_data.adu_types_allowed 
+                    ? Object.entries(selectedMunicipalityData.bylaw_data.adu_types_allowed)
+                        .filter(([_, allowed]) => allowed)
+                        .map(([type, _]) => type.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()))
+                        .join(', ') || 'None specified'
+                    : 'Not specified'
+                }</div>
+              </div>
+            </section>
+          )}
+
+          {/* Setback Analysis */}
+          <section>
+            <h2 className="text-lg font-bold text-black mb-3">SETBACK ANALYSIS</h2>
+            <div className="space-y-2 text-sm">
+              <div><span className="font-bold">Current Front Setback:</span> {config.frontSetback}' (Required: {selectedMunicipalityData?.bylaw_data?.front_setback_min_ft || config.frontSetback}')</div>
+              <div><span className="font-bold">Current Rear Setback:</span> {config.rearSetback}' (Required: {selectedMunicipalityData?.bylaw_data?.rear_setback_standard_ft || config.rearSetback}')</div>
+              <div><span className="font-bold">Current Side Setback:</span> {config.sideSetback}' (Required: {selectedMunicipalityData?.bylaw_data?.side_setback_interior_ft || config.sideSetback}')</div>
+              
+              <div className="mt-4">
+                <p className="font-bold">ADU Setback Compliance:</p>
+                <div className="ml-4 space-y-1">
+                  <div>• Front: {aduPosition.y}' (Required: {config.frontSetback}')</div>
+                  <div>• Rear: {config.lotDepth - aduPosition.y - config.aduDepth}' (Required: {config.rearSetback}')</div>
+                  <div>• West Side: {aduPosition.x}' (Required: {config.sideSetback}')</div>
+                  <div>• East Side: {config.lotWidth - aduPosition.x - config.aduWidth}' (Required: {config.sideSetback}')</div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Site Features */}
+          {obstacles.length > 0 && (
+            <section>
+              <h2 className="text-lg font-bold text-black mb-3">SITE FEATURES</h2>
+              <div className="space-y-3 text-sm">
+                {obstacles.map((feature, index) => (
+                  <div key={feature.id} className="border-l-4 border-blue-500 pl-4">
+                    <div className="font-bold">
+                      {index + 1}. {feature.type.charAt(0).toUpperCase() + feature.type.slice(1)}: {feature.name || `${feature.type} ${index + 1}`}
+                    </div>
+                    <div className="text-gray-600">Position: {feature.x}', {feature.y}' from southwest corner</div>
+                    <div className="text-gray-600">Size: {feature.width}' × {feature.depth}'</div>
+                    <div className="text-gray-600">Area: {(feature.width * feature.depth).toLocaleString()} sq ft</div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Compliance Analysis */}
+          <section>
+            <h2 className="text-lg font-bold text-black mb-3">COMPLIANCE ANALYSIS</h2>
+            
+            <div className={`text-lg font-bold mb-4 ${bylawValidation.isValid ? 'text-green-600' : 'text-red-600'}`}>
+              {bylawValidation.isValid ? '✓ CONFIGURATION COMPLIANT' : '✗ COMPLIANCE ISSUES FOUND'}
+            </div>
+
+            <div className="space-y-2 text-sm mb-4">
+              <div className={`${bylawValidation.violations.length > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                Total Violations: {bylawValidation.violations.length}
+              </div>
+              <div className={`${bylawValidation.warnings.length > 0 ? 'text-orange-500' : 'text-green-600'}`}>
+                Warnings: {bylawValidation.warnings.length}
+              </div>
+            </div>
+
+            {(bylawValidation.violations.length > 0 || bylawValidation.warnings.length > 0) && (
+              <div>
+                <p className="font-bold mb-2">Specific Issues:</p>
+                <div className="space-y-3">
+                  {bylawValidation.violations.map((violation, idx) => (
+                    <div key={idx} className="ml-4">
+                      <div className="text-red-600">
+                        • {violation.message}
+                      </div>
+                      {violation.details && (
+                        <div className="text-gray-600 text-sm ml-4">
+                          Details: {violation.details}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {bylawValidation.warnings.map((warning, idx) => (
+                    <div key={idx} className="ml-4">
+                      <div className="text-orange-500">
+                        ⚠ {warning.message}
+                      </div>
+                      {warning.details && (
+                        <div className="text-gray-600 text-sm ml-4">
+                          Details: {warning.details}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* Technical Calculations */}
+          <section>
+            <h2 className="text-lg font-bold text-black mb-3">TECHNICAL CALCULATIONS</h2>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div><span className="font-bold">Total Lot Area:</span> {(config.lotWidth * config.lotDepth).toLocaleString()} sq ft</div>
+              <div><span className="font-bold">Main Building Footprint:</span> {(config.mainBuildingWidth * config.mainBuildingDepth).toLocaleString()} sq ft</div>
+              <div><span className="font-bold">ADU Footprint:</span> {(config.aduWidth * config.aduDepth).toLocaleString()} sq ft</div>
+              <div><span className="font-bold">Total Building Footprint:</span> {((config.mainBuildingWidth * config.mainBuildingDepth) + (config.aduWidth * config.aduDepth)).toLocaleString()} sq ft</div>
+              <div><span className="font-bold">Lot Coverage:</span> {(((config.mainBuildingWidth * config.mainBuildingDepth) + (config.aduWidth * config.aduDepth)) / (config.lotWidth * config.lotDepth) * 100).toFixed(1)}%</div>
+              <div><span className="font-bold">Remaining Yard Space:</span> {((config.lotWidth * config.lotDepth) - (config.mainBuildingWidth * config.mainBuildingDepth) - (config.aduWidth * config.aduDepth)).toLocaleString()} sq ft</div>
+              <div><span className="font-bold">Buildable Area:</span> {((config.lotWidth - 2 * config.sideSetback) * (config.lotDepth - config.frontSetback - config.rearSetback)).toLocaleString()} sq ft</div>
+              <div><span className="font-bold">Buildable Area Used:</span> {(((config.mainBuildingWidth * config.mainBuildingDepth) + (config.aduWidth * config.aduDepth)) / ((config.lotWidth - 2 * config.sideSetback) * (config.lotDepth - config.frontSetback - config.rearSetback)) * 100).toFixed(1)}%</div>
+            </div>
+          </section>
+
+          {/* Disclaimer */}
+          <section className="border-t border-gray-200 pt-6">
+            <div className="text-gray-500 text-sm space-y-2">
+              <p className="font-bold">IMPORTANT DISCLAIMER</p>
+              <p>
+                This report is generated for preliminary planning purposes only and does not constitute
+                official approval or authorization for construction. All dimensions, setbacks, and compliance
+                determinations must be verified with local municipal authorities and building departments
+                before proceeding with any construction activities.
+              </p>
+              <p>
+                The configuration shown represents the current state of the lot configurator tool and may
+                not reflect all applicable building codes, zoning requirements, or site-specific conditions.
+                Professional architectural and engineering consultation is recommended for final design and
+                permit applications.
+              </p>
+            </div>
+          </section>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function LotConfigurator() {
   const [config, setConfig] = useState<Config>({
     lotWidth: 65, // Default width within range of 15-300 ft
@@ -201,6 +752,7 @@ export default function LotConfigurator() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const visualizationContainerRef = useRef<HTMLDivElement>(null)
   const [containerDimensions, setContainerDimensions] = useState({ width: 600, height: 400 })
+  const [showReportModal, setShowReportModal] = useState(false)
   
   // Municipality selection and bylaw data
   const [municipalities, setMunicipalities] = useState<MunicipalityWithBylawData[]>([])
@@ -1218,16 +1770,30 @@ export default function LotConfigurator() {
         lotSize: `${toDisplay(config.lotWidth)} × ${toDisplay(config.lotDepth)} ${getUnitLabel()}`,
         lotArea: `${toDisplay(metrics.lotArea, true)} ${getUnitLabel(true)}`,
         buildableArea: `${toDisplay(metrics.buildableAreaSize, true)} ${getUnitLabel(true)}`,
+        frontage: `${toDisplay(config.lotWidth)} ${getUnitLabel()}`,
+        depth: `${toDisplay(config.lotDepth)} ${getUnitLabel()}`,
         ...(isCornerLot && { cornerLot: 'Yes - Corner lot setbacks applied' }),
         ...(hasAlleyAccess && { alleyAccess: 'Yes - Reduced rear setback applied' })
+      },
+      mainBuilding: {
+        size: `${toDisplay(config.mainBuildingWidth)} × ${toDisplay(config.mainBuildingDepth)} ${getUnitLabel()}`,
+        area: `${toDisplay(config.mainBuildingWidth * config.mainBuildingDepth, true)} ${getUnitLabel(true)}`,
+        position: `${toDisplay(config.sideSetback)} from side, ${toDisplay(config.frontSetback)} from front`
       },
       adu: {
         type: config.aduType,
         size: `${toDisplay(config.aduWidth)} × ${toDisplay(config.aduDepth)} ${getUnitLabel()}`,
         area: `${toDisplay(metrics.aduArea, true)} ${getUnitLabel(true)}`,
         stories: config.aduStories,
-        position: `${toDisplay(aduPosition.x)}, ${toDisplay(aduPosition.y)} ${getUnitLabel()}`
+        position: `${toDisplay(aduPosition.x)}, ${toDisplay(aduPosition.y)} ${getUnitLabel()}`,
+        distanceFromMain: `${toDisplay(config.separationFromMain)} ${getUnitLabel()}`
       },
+      siteFeatures: obstacles.map(obstacle => ({
+        type: obstacle.type,
+        name: obstacle.name || `${obstacle.type.charAt(0).toUpperCase() + obstacle.type.slice(1)}`,
+        position: `${toDisplay(obstacle.x)}, ${toDisplay(obstacle.y)} ${getUnitLabel()}`,
+        size: obstacle.width && obstacle.height ? `${toDisplay(obstacle.width)} × ${toDisplay(obstacle.height)} ${getUnitLabel()}` : 'Point feature'
+      })),
       setbacks: {
         front: `${toDisplay(config.frontSetback)} ${getUnitLabel()} ${setbacksFromBylaws.front ? '(from bylaws)' : '(manual)'}`,
         rear: `${toDisplay(config.rearSetback)} ${getUnitLabel()} ${setbacksFromBylaws.rear ? '(from bylaws)' : '(manual)'}${hasAlleyAccess ? ' - alley access applied' : ''}`,
@@ -1251,10 +1817,54 @@ export default function LotConfigurator() {
       },
       calculations: {
         lotCoverage: `${metrics.coverage.toFixed(1)}%`,
-        separationDistance: `${toDisplay(config.separationFromMain)} ${getUnitLabel()} ${separationFromBylaws ? '(from bylaws)' : '(manual)'}`
+        separationDistance: `${toDisplay(config.separationFromMain)} ${getUnitLabel()} ${separationFromBylaws ? '(from bylaws)' : '(manual)'}`,
+        totalBuildingFootprint: `${toDisplay((config.mainBuildingWidth * config.mainBuildingDepth) + metrics.aduArea, true)} ${getUnitLabel(true)}`,
+        remainingYardSpace: `${toDisplay(metrics.lotArea - ((config.mainBuildingWidth * config.mainBuildingDepth) + metrics.aduArea), true)} ${getUnitLabel(true)}`
       }
     }
     return report
+  }
+
+  // Function to capture the lot visualization as an image
+  const captureLotVisualization = async (): Promise<string | null> => {
+    try {
+      const { default: html2canvas } = await import('html2canvas')
+      const visualizer = document.querySelector('[data-visualizer="true"]') as HTMLElement
+      if (!visualizer) {
+        console.error('Visualizer element not found')
+        return null
+      }
+      
+      // Wait a moment for any animations to complete
+      await new Promise(resolve => setTimeout(resolve, 500))
+      
+      const canvas = await html2canvas(visualizer, {
+        backgroundColor: '#ffffff',
+        scale: 3, // Higher scale for better quality
+        useCORS: true,
+        allowTaint: false,
+        logging: false,
+        width: visualizer.offsetWidth,
+        height: visualizer.offsetHeight,
+        scrollX: 0,
+        scrollY: 0
+      })
+      
+      return canvas.toDataURL('image/png', 0.95)
+    } catch (error) {
+      console.error('Error capturing visualization:', error)
+      return null
+    }
+  }
+
+  // Function to show report modal with live data
+  const generateReport = () => {
+    try {
+      setShowReportModal(true)
+    } catch (error) {
+      console.error('Error generating report:', error)
+      alert('Error generating report. Please check the console for details.')
+    }
   }
 
   const exportConfiguration = async () => {
@@ -1269,167 +1879,460 @@ export default function LotConfigurator() {
       })
       
       const report = generateDetailedReport()
-      const timestamp = new Date().toLocaleDateString()
+      const bylawData = selectedMunicipalityData?.bylaw_data
+      const timestamp = new Date().toLocaleDateString('en-US', { 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric' 
+      })
       
-      // Title and Header
-      pdf.setFontSize(20)
+      // Helper function to add page header
+      const addHeader = (pageNum: number) => {
+        pdf.setFontSize(8)
+        pdf.setFont('helvetica', 'normal')
+        pdf.setTextColor(128, 128, 128)
+        pdf.text(`ADU Configuration Report - ${report.municipality}`, 20, 10)
+        pdf.text(`Page ${pageNum}`, 190, 10)
+        pdf.setTextColor(0, 0, 0)
+      }
+      
+      // Helper function to check if we need a new page
+      const checkNewPage = (currentY: number, requiredSpace: number = 20): number => {
+        if (currentY + requiredSpace > 250) {
+          pdf.addPage()
+          addHeader(pdf.getNumberOfPages())
+          return 25
+        }
+        return currentY
+      }
+      
+      let yPosition = 25
+      addHeader(1)
+      
+      // Professional Title Section
+      pdf.setFontSize(22)
       pdf.setFont('helvetica', 'bold')
-      pdf.text('ADU Lot Configuration Report', 20, 30)
+      pdf.setTextColor(51, 51, 51)
+      pdf.text('ACCESSORY DWELLING UNIT', 20, yPosition)
+      yPosition += 8
+      pdf.text('LOT CONFIGURATION REPORT', 20, yPosition)
+      yPosition += 15
+      
+      // Municipality and Date
+      pdf.setFontSize(14)
+      pdf.setFont('helvetica', 'normal')
+      pdf.setTextColor(85, 85, 85)
+      pdf.text(`Municipality: ${report.municipality}`, 20, yPosition)
+      yPosition += 8
+      pdf.text(`Generated: ${timestamp}`, 20, yPosition)
+      yPosition += 20
+      
+      // Executive Summary Section
+      yPosition = checkNewPage(yPosition, 60)
+      pdf.setFontSize(16)
+      pdf.setFont('helvetica', 'bold')
+      pdf.setTextColor(0, 0, 0)
+      pdf.text('EXECUTIVE SUMMARY', 20, yPosition)
+      yPosition += 12
+      
+      // Status indicator box - exactly like preview
+      const statusColor = report.compliance.isValid ? [34, 139, 34] : [220, 20, 60]
+      pdf.setFillColor(statusColor[0], statusColor[1], statusColor[2])
+      pdf.rect(20, yPosition, 170, 18, 'F')
       
       pdf.setFontSize(12)
-      pdf.setFont('helvetica', 'normal')
-      pdf.text(`Generated: ${timestamp}`, 20, 45)
-      pdf.text(`Municipality: ${report.municipality}`, 20, 55)
-      
-      let yPosition = 70
-      
-      // Property Information Section
-      pdf.setFontSize(16)
       pdf.setFont('helvetica', 'bold')
-      pdf.text('Property Information', 20, yPosition)
-      yPosition += 15
+      pdf.setTextColor(255, 255, 255)
+      const statusText = report.compliance.isValid ? 'COMPLIANT - Configuration meets bylaw requirements' : 'NON-COMPLIANT - Issues require resolution'
+      pdf.text(statusText, 25, yPosition + 12)
+      yPosition += 25
       
+      pdf.setTextColor(85, 85, 85) // Gray text like preview
       pdf.setFontSize(11)
       pdf.setFont('helvetica', 'normal')
-      pdf.text(`Lot Size: ${report.property.lotSize}`, 25, yPosition)
-      yPosition += 8
-      pdf.text(`Lot Area: ${report.property.lotArea}`, 25, yPosition)
-      yPosition += 8
-      pdf.text(`Buildable Area: ${report.property.buildableArea}`, 25, yPosition)
-      yPosition += 8
       
-      if (report.property.cornerLot) {
-        pdf.text(`• ${report.property.cornerLot}`, 25, yPosition)
-        yPosition += 8
-      }
-      if (report.property.alleyAccess) {
-        pdf.text(`• ${report.property.alleyAccess}`, 25, yPosition)
-        yPosition += 8
+      // Key metrics summary - exactly matching preview format
+      const summaryItems = [
+        `ADU Type: ${report.adu.type.toUpperCase()}`,
+        `Floor Area: ${report.adu.area}`,
+        `Lot Coverage: ${report.calculations.lotCoverage}`,
+        `Compliance Issues: ${report.compliance.violations + report.compliance.warnings} total`
+      ]
+      
+      summaryItems.forEach(item => {
+        pdf.text(`• ${item}`, 25, yPosition)
+        yPosition += 7
+      })
+      yPosition += 15
+      
+      // Site Layout Visualization
+      yPosition = checkNewPage(yPosition, 120)
+      pdf.setFontSize(16)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('SITE LAYOUT VISUALIZATION', 20, yPosition)
+      yPosition += 12
+      
+      // Capture and add the lot visualization image
+      const visualizationImage = await captureLotVisualization()
+      if (visualizationImage) {
+        try {
+          // Add the visualization image to the PDF - larger size for better visibility
+          pdf.addImage(visualizationImage, 'PNG', 20, yPosition, 170, 100)
+          yPosition += 110
+          
+          pdf.setFontSize(10)
+          pdf.setFont('helvetica', 'italic')
+          pdf.setTextColor(102, 102, 102)
+          pdf.text('Live capture of your lot configuration with buildings, site features, and setback compliance.', 20, yPosition)
+          yPosition += 10
+        } catch (error) {
+          console.error('Error adding visualization image:', error)
+          pdf.setFontSize(11)
+          pdf.setFont('helvetica', 'italic')
+          pdf.setTextColor(128, 128, 128)
+          pdf.text('Site layout visualization could not be captured', 25, yPosition)
+          yPosition += 15
+        }
+      } else {
+        // Add placeholder box when capture fails
+        pdf.setFillColor(245, 245, 245)
+        pdf.rect(20, yPosition, 170, 100, 'F')
+        pdf.setDrawColor(200, 200, 200)
+        pdf.rect(20, yPosition, 170, 100, 'S')
+        
+        pdf.setFontSize(12)
+        pdf.setTextColor(102, 102, 102)
+        pdf.text('🏗️', 100, yPosition + 40)
+        pdf.setFont('helvetica', 'bold')
+        pdf.text('Site Layout Visualization', 105 - (pdf.getTextWidth('Site Layout Visualization') / 2), yPosition + 50)
+        pdf.setFont('helvetica', 'normal')
+        pdf.setFontSize(10)
+        pdf.text('Live visualization capture unavailable', 105 - (pdf.getTextWidth('Live visualization capture unavailable') / 2), yPosition + 60)
+        
+        yPosition += 110
       }
       
+      pdf.setTextColor(0, 0, 0)
       yPosition += 10
       
+      // Property Information Section - matching preview layout
+      yPosition = checkNewPage(yPosition, 60)
+      pdf.setFontSize(16)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('PROPERTY INFORMATION', 20, yPosition)
+      yPosition += 12
+      
+      // Two-column layout like preview
+      pdf.setFontSize(11)
+      pdf.setFont('helvetica', 'normal')
+      
+      const propertyDataLeft = [
+        ['Lot Dimensions:', report.property.lotSize],
+        ['Total Lot Area:', report.property.lotArea],
+        ['Buildable Area:', report.property.buildableArea]
+      ]
+      
+      const propertyDataRight = [
+        ['Frontage:', report.property.frontage],
+        ['Depth:', report.property.depth],
+        ['Corner Lot:', isCornerLot ? report.property.cornerLot || 'Yes' : 'No'],
+        ['Alley Access:', hasAlleyAccess ? report.property.alleyAccess || 'Yes' : 'No']
+      ]
+      
+      const startY = yPosition
+      // Left column
+      propertyDataLeft.forEach(([label, value], idx) => {
+        pdf.setFont('helvetica', 'bold')
+        pdf.text(label, 25, startY + (idx * 7))
+        pdf.setFont('helvetica', 'normal')
+        pdf.text(value, 75, startY + (idx * 7))
+      })
+      
+      // Right column
+      propertyDataRight.forEach(([label, value], idx) => {
+        pdf.setFont('helvetica', 'bold')
+        pdf.text(label, 110, startY + (idx * 7))
+        pdf.setFont('helvetica', 'normal')
+        pdf.text(value, 150, startY + (idx * 7))
+      })
+      
+      yPosition = startY + Math.max(propertyDataLeft.length, propertyDataRight.length) * 7 + 15
+      
+      // Main Building Section - matching preview format
+      yPosition = checkNewPage(yPosition, 40)
+      pdf.setFontSize(16)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('MAIN BUILDING', 20, yPosition)
+      yPosition += 12
+      
+      pdf.setFontSize(11)
+      const mainBuildingLeft = [
+        ['Dimensions:', report.mainBuilding.size],
+        ['Floor Area:', report.mainBuilding.area]
+      ]
+      const mainBuildingRight = [
+        ['Position:', report.mainBuilding.position]
+      ]
+      
+      const mainStartY = yPosition
+      // Left column
+      mainBuildingLeft.forEach(([label, value], idx) => {
+        pdf.setFont('helvetica', 'bold')
+        pdf.text(label, 25, mainStartY + (idx * 7))
+        pdf.setFont('helvetica', 'normal')
+        pdf.text(value, 75, mainStartY + (idx * 7))
+      })
+      
+      // Right column  
+      mainBuildingRight.forEach(([label, value], idx) => {
+        pdf.setFont('helvetica', 'bold')
+        pdf.text(label, 110, mainStartY + (idx * 7))
+        pdf.setFont('helvetica', 'normal')
+        pdf.text(value, 150, mainStartY + (idx * 7))
+      })
+      
+      yPosition = mainStartY + Math.max(mainBuildingLeft.length, mainBuildingRight.length) * 7 + 15
+      
       // ADU Configuration Section
+      yPosition = checkNewPage(yPosition, 50)
       pdf.setFontSize(16)
       pdf.setFont('helvetica', 'bold')
-      pdf.text('ADU Configuration', 20, yPosition)
-      yPosition += 15
+      pdf.text('ADU CONFIGURATION', 20, yPosition)
+      yPosition += 12
+      
+      const aduData = [
+        ['Type:', report.adu.type.charAt(0).toUpperCase() + report.adu.type.slice(1)],
+        ['Dimensions:', report.adu.size],
+        ['Floor Area:', report.adu.area],
+        ['Stories:', report.adu.stories.toString()],
+        ['Position on Lot:', report.adu.position],
+        ['Distance from Main:', report.adu.distanceFromMain]
+      ]
       
       pdf.setFontSize(11)
-      pdf.setFont('helvetica', 'normal')
-      pdf.text(`Type: ${report.adu.type.charAt(0).toUpperCase() + report.adu.type.slice(1)}`, 25, yPosition)
-      yPosition += 8
-      pdf.text(`Dimensions: ${report.adu.size}`, 25, yPosition)
-      yPosition += 8
-      pdf.text(`Floor Area: ${report.adu.area}`, 25, yPosition)
-      yPosition += 8
-      pdf.text(`Stories: ${report.adu.stories}`, 25, yPosition)
-      yPosition += 8
-      pdf.text(`Position: ${report.adu.position}`, 25, yPosition)
+      aduData.forEach(([label, value]) => {
+        pdf.setFont('helvetica', 'bold')
+        pdf.text(label, 25, yPosition)
+        pdf.setFont('helvetica', 'normal')
+        pdf.text(value, 85, yPosition)
+        yPosition += 7
+      })
       yPosition += 15
       
-      // Setbacks Section
+      // Site Features Section
+      if (report.siteFeatures && report.siteFeatures.length > 0) {
+        yPosition = checkNewPage(yPosition, 30 + (report.siteFeatures.length * 8))
+        pdf.setFontSize(16)
+        pdf.setFont('helvetica', 'bold')
+        pdf.text('SITE FEATURES', 20, yPosition)
+        yPosition += 12
+        
+        pdf.setFontSize(11)
+        pdf.setFont('helvetica', 'normal')
+        report.siteFeatures.forEach((feature, index) => {
+          pdf.setFont('helvetica', 'bold')
+          pdf.text(`${index + 1}. ${feature.type.charAt(0).toUpperCase() + feature.type.slice(1)}:`, 25, yPosition)
+          pdf.setFont('helvetica', 'normal')
+          pdf.text(`${feature.name || 'Unnamed'}`, 85, yPosition)
+          yPosition += 6
+          pdf.text(`Position: ${feature.position}`, 30, yPosition)
+          if (feature.size !== 'Point feature') {
+            yPosition += 6
+            pdf.text(`Size: ${feature.size}`, 30, yPosition)
+          }
+          yPosition += 10
+        })
+        yPosition += 5
+      }
+      
+      // Bylaw Requirements Section (NEW)
+      if (bylawData) {
+        yPosition = checkNewPage(yPosition, 60)
+        pdf.setFontSize(16)
+        pdf.setFont('helvetica', 'bold')
+        pdf.text('MUNICIPAL BYLAW REQUIREMENTS', 20, yPosition)
+        yPosition += 12
+        
+        pdf.setFontSize(11)
+        pdf.setFont('helvetica', 'normal')
+        
+        const bylawRequirements = [
+          ['Minimum Lot Width:', bylawData.min_lot_width_ft ? `${bylawData.min_lot_width_ft}'` : 'Not specified'],
+          ['Front Setback (min):', bylawData.front_setback_min_ft ? `${bylawData.front_setback_min_ft}'` : 'Not specified'],
+          ['Rear Setback (standard):', bylawData.rear_setback_standard_ft ? `${bylawData.rear_setback_standard_ft}'` : 'Not specified'],
+          ['Rear Setback (w/ alley):', bylawData.rear_setback_with_alley_ft ? `${bylawData.rear_setback_with_alley_ft}'` : 'Same as standard'],
+          ['Side Setback (interior):', bylawData.side_setback_interior_ft ? `${bylawData.side_setback_interior_ft}'` : 'Not specified'],
+          ['Side Setback (corner st.):', bylawData.side_setback_corner_street_ft ? `${bylawData.side_setback_corner_street_ft}'` : 'Same as interior'],
+          ['Max ADU Size:', bylawData.max_adu_size_sqft ? `${bylawData.max_adu_size_sqft} sq ft` : 'Not specified'],
+          ['Max Lot Coverage:', bylawData.max_lot_coverage_percent ? `${bylawData.max_lot_coverage_percent}%` : 'Not specified'],
+          ['Permitted ADU Types:', bylawData.adu_types_allowed || 'Not specified']
+        ]
+        
+        bylawRequirements.forEach(([label, value]) => {
+          pdf.setFont('helvetica', 'bold')
+          pdf.text(label, 25, yPosition)
+          pdf.setFont('helvetica', 'normal')
+          pdf.text(value, 90, yPosition)
+          yPosition += 7
+        })
+        yPosition += 15
+      }
+      
+      // Setbacks Analysis Section
+      yPosition = checkNewPage(yPosition, 50)
       pdf.setFontSize(16)
       pdf.setFont('helvetica', 'bold')
-      pdf.text('Setbacks', 20, yPosition)
-      yPosition += 15
+      pdf.text('SETBACK ANALYSIS', 20, yPosition)
+      yPosition += 12
+      
+      const setbackData = [
+        ['Front Setback:', report.setbacks.front],
+        ['Rear Setback:', report.setbacks.rear],
+        ['Side Setback:', report.setbacks.side]
+      ]
       
       pdf.setFontSize(11)
-      pdf.setFont('helvetica', 'normal')
-      pdf.text(`Front: ${report.setbacks.front}`, 25, yPosition)
-      yPosition += 8
-      pdf.text(`Rear: ${report.setbacks.rear}`, 25, yPosition)
-      yPosition += 8
-      pdf.text(`Side: ${report.setbacks.side}`, 25, yPosition)
-      yPosition += 8
+      setbackData.forEach(([label, value]) => {
+        pdf.setFont('helvetica', 'bold')
+        pdf.text(label, 25, yPosition)
+        pdf.setFont('helvetica', 'normal')
+        pdf.text(value, 85, yPosition)
+        yPosition += 7
+      })
       
       if (report.setbacks.notes) {
         yPosition += 5
+        pdf.setFont('helvetica', 'bold')
+        pdf.text('Special Conditions:', 25, yPosition)
+        yPosition += 7
+        pdf.setFont('helvetica', 'normal')
         report.setbacks.notes.forEach((note) => {
           pdf.text(`• ${note}`, 30, yPosition)
-          yPosition += 8
+          yPosition += 6
         })
       }
-      
-      yPosition += 10
-      
-      // Compliance Section
-      pdf.setFontSize(16)
-      pdf.setFont('helvetica', 'bold')
-      const complianceColor = report.compliance.isValid ? [0, 128, 0] as const : [204, 0, 0] as const
-      pdf.setTextColor(complianceColor[0], complianceColor[1], complianceColor[2])
-      pdf.text('Compliance Status', 20, yPosition)
       yPosition += 15
       
-      pdf.setTextColor(0, 0, 0)
+      // Compliance Analysis Section
+      yPosition = checkNewPage(yPosition, 60)
+      pdf.setFontSize(16)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('COMPLIANCE ANALYSIS', 20, yPosition)
+      yPosition += 12
+      
+      // Overall status
       pdf.setFontSize(12)
       pdf.setFont('helvetica', 'bold')
-      pdf.setTextColor(complianceColor[0], complianceColor[1], complianceColor[2])
-      pdf.text(report.compliance.isValid ? '✓ COMPLIANT' : '✗ NON-COMPLIANT', 25, yPosition)
-      yPosition += 15
+      pdf.setTextColor(statusColor[0], statusColor[1], statusColor[2])
+      pdf.text(report.compliance.isValid ? '✓ CONFIGURATION COMPLIANT' : '✗ COMPLIANCE ISSUES FOUND', 25, yPosition)
+      yPosition += 12
       
       pdf.setTextColor(0, 0, 0)
       pdf.setFontSize(11)
       pdf.setFont('helvetica', 'normal')
       
-      if (report.compliance.violations > 0) {
-        pdf.text(`Violations: ${report.compliance.violations}`, 25, yPosition)
-        yPosition += 8
-      }
-      if (report.compliance.warnings > 0) {
-        pdf.text(`Warnings: ${report.compliance.warnings}`, 25, yPosition)
-        yPosition += 8
-      }
+      const complianceStats = [
+        [`Total Violations: ${report.compliance.violations}`, report.compliance.violations > 0 ? [220, 20, 60] : [34, 139, 34]],
+        [`Warnings: ${report.compliance.warnings}`, report.compliance.warnings > 0 ? [255, 140, 0] : [34, 139, 34]]
+      ]
       
-      // List specific issues
+      complianceStats.forEach(([text, color]) => {
+        pdf.setTextColor((color as number[])[0], (color as number[])[1], (color as number[])[2])
+        pdf.text(text as string, 25, yPosition)
+        yPosition += 7
+      })
+      
+      pdf.setTextColor(0, 0, 0)
+      yPosition += 8
+      
+      // Detailed issues
       if (report.compliance.details && report.compliance.details.length > 0) {
-        yPosition += 5
+        pdf.setFont('helvetica', 'bold')
+        pdf.text('Specific Issues:', 25, yPosition)
+        yPosition += 8
+        
+        pdf.setFont('helvetica', 'normal')
         report.compliance.details.forEach((detail) => {
-          if (yPosition > 250) { // Check if we need a new page
-            pdf.addPage()
-            yPosition = 30
-          }
-          pdf.setTextColor(detail.type === 'setback' ? 204 : 255, detail.type === 'setback' ? 0 : 165, 0)
+          yPosition = checkNewPage(yPosition, 15)
+          const detailColor = detail.type === 'setback' ? [220, 20, 60] : [255, 140, 0]
+          pdf.setTextColor(detailColor[0], detailColor[1], detailColor[2])
           pdf.text(`• ${detail.message}`, 30, yPosition)
+          if (detail.requirement) {
+            yPosition += 6
+            pdf.setTextColor(85, 85, 85)
+            pdf.text(`  Requirement: ${detail.requirement}`, 35, yPosition)
+          }
           yPosition += 8
         })
+      } else {
+        pdf.setTextColor(34, 139, 34)
+        pdf.text('✓ All requirements satisfied', 25, yPosition)
+        yPosition += 8
       }
       
       pdf.setTextColor(0, 0, 0)
-      yPosition += 10
-      
-      // Calculations Section
-      if (yPosition > 230) {
-        pdf.addPage()
-        yPosition = 30
-      }
-      
-      pdf.setFontSize(16)
-      pdf.setFont('helvetica', 'bold')
-      pdf.text('Calculations', 20, yPosition)
       yPosition += 15
       
+      // Calculations Section
+      yPosition = checkNewPage(yPosition, 30)
+      pdf.setFontSize(16)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('TECHNICAL CALCULATIONS', 20, yPosition)
+      yPosition += 12
+      
+      // Two-column layout for calculations like preview
+      const calculationsLeft = [
+        ['Lot Coverage:', report.calculations.lotCoverage],
+        ['Main-ADU Separation:', report.calculations.separationDistance]
+      ]
+      const calculationsRight = [
+        ['Total Building Footprint:', report.calculations.totalBuildingFootprint],
+        ['Remaining Yard Space:', report.calculations.remainingYardSpace]
+      ]
+      
+      const calcStartY = yPosition
+      // Left column
+      calculationsLeft.forEach(([label, value], idx) => {
+        pdf.setFont('helvetica', 'bold')
+        pdf.text(label, 25, calcStartY + (idx * 7))
+        pdf.setFont('helvetica', 'normal')
+        pdf.text(value, 85, calcStartY + (idx * 7))
+      })
+      
+      // Right column
+      calculationsRight.forEach(([label, value], idx) => {
+        pdf.setFont('helvetica', 'bold')
+        pdf.text(label, 110, calcStartY + (idx * 7))
+        pdf.setFont('helvetica', 'normal')
+        pdf.text(value, 170, calcStartY + (idx * 7))
+      })
+      
       pdf.setFontSize(11)
-      pdf.setFont('helvetica', 'normal')
-      pdf.text(`Lot Coverage: ${report.calculations.lotCoverage}`, 25, yPosition)
-      yPosition += 8
-      pdf.text(`Separation Distance: ${report.calculations.separationDistance}`, 25, yPosition)
-      yPosition += 20
+      yPosition = calcStartY + Math.max(calculationsLeft.length, calculationsRight.length) * 7 + 20
       
-      // Footer
-      if (yPosition > 240) {
-        pdf.addPage()
-        yPosition = 30
-      }
-      
+      // Professional Footer
+      yPosition = checkNewPage(yPosition, 40)
       pdf.setFontSize(10)
-      pdf.setFont('helvetica', 'italic')
+      pdf.setFont('helvetica', 'bold')
       pdf.setTextColor(128, 128, 128)
-      pdf.text('This report is for planning purposes only. Please verify all requirements', 20, yPosition)
-      pdf.text('with local authorities before proceeding with construction.', 20, yPosition + 8)
+      pdf.text('IMPORTANT DISCLAIMER', 20, yPosition)
+      yPosition += 8
+      
+      pdf.setFont('helvetica', 'normal')
+      const disclaimerText = [
+        'This report is generated for preliminary planning purposes only and does not constitute',
+        'official approval or authorization for construction. All dimensions, setbacks, and compliance',
+        'determinations must be verified with local municipal authorities and building departments',
+        'before proceeding with any construction activities.'
+      ]
+      
+      disclaimerText.forEach(line => {
+        pdf.text(line, 20, yPosition)
+        yPosition += 5
+      })
       
       // Save the PDF
-      const fileName = `lot-configuration-report-${new Date().toISOString().split('T')[0]}.pdf`
+      const fileName = `adu-configuration-report-${report.municipality.toLowerCase().replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.pdf`
       pdf.save(fileName)
       
     } catch (error) {
@@ -2169,10 +3072,14 @@ export default function LotConfigurator() {
               </div>
 
               {/* Actions */}
-              <div className="pt-1">
-                <Button onClick={exportConfiguration} className="w-full h-9">
+              <div className="pt-1 space-y-2">
+                <Button onClick={generateReport} className="w-full h-9">
+                  <FileText className="mr-2 h-4 w-4" />
+                  Generate Report
+                </Button>
+                <Button onClick={exportConfiguration} variant="outline" className="w-full h-9">
                   <Download className="mr-2 h-4 w-4" />
-                  Export
+                  Export PDF
                 </Button>
               </div>
             </CardContent>
@@ -2706,6 +3613,22 @@ export default function LotConfigurator() {
           </Card>
         </main>
       </div>
+
+      {/* Report Modal */}
+      {showReportModal && (
+        <ReportModal
+          config={config}
+          obstacles={obstacles}
+          bylawValidation={bylawValidation}
+          selectedMunicipalityData={selectedMunicipalityData}
+          canvasRef={canvasRef}
+          visualizationContainerRef={visualizationContainerRef}
+          aduPosition={aduPosition}
+          scale={scale}
+          containerDimensions={containerDimensions}
+          onClose={() => setShowReportModal(false)}
+        />
+      )}
     </div>
   )
 }
