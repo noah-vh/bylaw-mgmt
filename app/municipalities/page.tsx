@@ -988,6 +988,23 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
                     onChange={(e) => updateBylawForm('effective_date', e.target.value)}
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="permit_type">Permit Type</Label>
+                  <Select 
+                    value={bylawForm.permit_type || 'special_permit'} 
+                    onValueChange={(value) => updateBylawForm('permit_type', value)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select permit type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="by_right">By Right</SelectItem>
+                      <SelectItem value="special_permit">Special Permit</SelectItem>
+                      <SelectItem value="conditional_use">Conditional Use</SelectItem>
+                      <SelectItem value="variance">Variance</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </div>
 
@@ -1041,6 +1058,146 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
               </div>
             </div>
 
+            {/* Setback Requirements */}
+            <div className="space-y-4">
+              <h4 className="font-semibold">Setback Requirements</h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="front_setback">Front Setback (ft)</Label>
+                  <Input
+                    id="front_setback"
+                    type="number"
+                    value={bylawForm.front_setback_min_ft || ''}
+                    onChange={(e) => updateBylawForm('front_setback_min_ft', parseFloat(e.target.value))}
+                    placeholder="e.g., 20"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="rear_setback">Rear Setback (ft)</Label>
+                  <Input
+                    id="rear_setback"
+                    type="number"
+                    value={bylawForm.rear_setback_standard_ft || ''}
+                    onChange={(e) => updateBylawForm('rear_setback_standard_ft', parseFloat(e.target.value))}
+                    placeholder="e.g., 5"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="side_setback">Side Setback (ft)</Label>
+                  <Input
+                    id="side_setback"
+                    type="number"
+                    value={bylawForm.side_setback_interior_ft || ''}
+                    onChange={(e) => updateBylawForm('side_setback_interior_ft', parseFloat(e.target.value))}
+                    placeholder="e.g., 4"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="rear_setback_alley">Rear Setback w/ Alley (ft)</Label>
+                  <Input
+                    id="rear_setback_alley"
+                    type="number"
+                    value={bylawForm.rear_setback_with_alley_ft || ''}
+                    onChange={(e) => updateBylawForm('rear_setback_with_alley_ft', parseFloat(e.target.value))}
+                    placeholder="e.g., 3"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="side_setback_corner">Corner Side Setback (ft)</Label>
+                  <Input
+                    id="side_setback_corner"
+                    type="number"
+                    value={bylawForm.side_setback_corner_street_ft || ''}
+                    onChange={(e) => updateBylawForm('side_setback_corner_street_ft', parseFloat(e.target.value))}
+                    placeholder="e.g., 10"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="distance_primary">Distance from Primary (ft)</Label>
+                  <Input
+                    id="distance_primary"
+                    type="number"
+                    value={bylawForm.distance_from_primary_ft || ''}
+                    onChange={(e) => updateBylawForm('distance_from_primary_ft', parseFloat(e.target.value))}
+                    placeholder="e.g., 10"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Lot Requirements */}
+            <div className="space-y-4">
+              <h4 className="font-semibold">Lot Requirements</h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="min_lot_size">Min Lot Size (sq ft)</Label>
+                  <Input
+                    id="min_lot_size"
+                    type="number"
+                    value={bylawForm.min_lot_size_sqft || ''}
+                    onChange={(e) => updateBylawForm('min_lot_size_sqft', parseInt(e.target.value))}
+                    placeholder="e.g., 5000"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="min_lot_width">Min Lot Width (ft)</Label>
+                  <Input
+                    id="min_lot_width"
+                    type="number"
+                    value={bylawForm.min_lot_width_ft || ''}
+                    onChange={(e) => updateBylawForm('min_lot_width_ft', parseFloat(e.target.value))}
+                    placeholder="e.g., 50"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="min_lot_depth">Min Lot Depth (ft)</Label>
+                  <Input
+                    id="min_lot_depth"
+                    type="number"
+                    value={bylawForm.min_lot_depth_ft || ''}
+                    onChange={(e) => updateBylawForm('min_lot_depth_ft', parseFloat(e.target.value))}
+                    placeholder="e.g., 100"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="max_adus">Max ADUs Allowed</Label>
+                  <Input
+                    id="max_adus"
+                    type="number"
+                    min="1"
+                    value={bylawForm.max_adus || 1}
+                    onChange={(e) => updateBylawForm('max_adus', parseInt(e.target.value))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="max_total_units">Max Total Units</Label>
+                  <Input
+                    id="max_total_units"
+                    type="number"
+                    min="2"
+                    value={bylawForm.max_total_units || 2}
+                    onChange={(e) => updateBylawForm('max_total_units', parseInt(e.target.value))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="max_lot_coverage">Max Lot Coverage (%)</Label>
+                  <Input
+                    id="max_lot_coverage"
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={bylawForm.max_lot_coverage_percent || ''}
+                    onChange={(e) => updateBylawForm('max_lot_coverage_percent', parseFloat(e.target.value))}
+                    placeholder="e.g., 35"
+                  />
+                </div>
+              </div>
+            </div>
+
             {/* Parking Requirements */}
             <div className="space-y-4">
               <h4 className="font-semibold">Parking Requirements</h4>
@@ -1052,6 +1209,88 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
                   min="0"
                   value={bylawForm.adu_parking_spaces_required || 1}
                   onChange={(e) => updateBylawForm('adu_parking_spaces_required', parseInt(e.target.value))}
+                />
+              </div>
+            </div>
+
+            {/* Height Limits */}
+            <div className="space-y-4">
+              <h4 className="font-semibold">Height Limits</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="max_height">Max Height (ft)</Label>
+                  <Input
+                    id="max_height"
+                    type="number"
+                    value={bylawForm.detached_adu_max_height_ft || ''}
+                    onChange={(e) => updateBylawForm('detached_adu_max_height_ft', parseFloat(e.target.value))}
+                    placeholder="e.g., 25"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="max_stories">Max Stories</Label>
+                  <Input
+                    id="max_stories"
+                    type="number"
+                    min="1"
+                    value={bylawForm.detached_adu_max_stories || ''}
+                    onChange={(e) => updateBylawForm('detached_adu_max_stories', parseInt(e.target.value))}
+                    placeholder="e.g., 2"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Owner Occupancy */}
+            <div className="space-y-4">
+              <h4 className="font-semibold">Owner Occupancy Requirements</h4>
+              <Select
+                value={bylawForm.owner_occupancy_required || 'none'}
+                onValueChange={(value: 'none' | 'primary_residence' | 'either_unit') => 
+                  updateBylawForm('owner_occupancy_required', value)
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No Requirement</SelectItem>
+                  <SelectItem value="primary_residence">Must Live in Primary</SelectItem>
+                  <SelectItem value="either_unit">Must Live in Either Unit</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Review Tracking */}
+            <div className="space-y-4">
+              <h4 className="font-semibold">Review Tracking</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="data_entry_by">Data Entry By</Label>
+                  <Input
+                    id="data_entry_by"
+                    value={bylawForm.data_entry_completed_by || ''}
+                    onChange={(e) => updateBylawForm('data_entry_completed_by', e.target.value)}
+                    placeholder="Enter name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="reviewed_by">Reviewed By</Label>
+                  <Input
+                    id="reviewed_by"
+                    value={bylawForm.reviewed_by || ''}
+                    onChange={(e) => updateBylawForm('reviewed_by', e.target.value)}
+                    placeholder="Enter reviewer name"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="review_date">Review Date</Label>
+                <Input
+                  id="review_date"
+                  type="date"
+                  value={bylawForm.review_date || ''}
+                  onChange={(e) => updateBylawForm('review_date', e.target.value)}
                 />
               </div>
             </div>
