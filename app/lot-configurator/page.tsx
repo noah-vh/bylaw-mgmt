@@ -22,7 +22,11 @@ import {
   Building,
   ArrowUpDown,
   ArrowLeftRight,
-  AlertCircle
+  AlertCircle,
+  Circle,
+  Dot,
+  Eye,
+  FileText
 } from 'lucide-react'
 import type { MunicipalityWithBylawData, BylawValidationResult, BylawViolation } from '@/lib/municipality-bylaw-types'
 
@@ -58,6 +62,61 @@ interface ADUPreset {
   squareFeet: number
   width: number
   depth: number
+}
+
+// Municipality badge helper function
+function getMunicipalityBadgeConfig(bylawData: any) {
+  if (!bylawData) {
+    return {
+      text: 'No Data',
+      className: 'text-xs bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 px-1.5 py-0.5 rounded'
+    }
+  }
+
+  // Calculate completeness score
+  const requiredFields = [
+    'permit_type', 'adu_types_allowed', 'front_setback_min_ft',
+    'rear_setback_standard_ft', 'side_setback_interior_ft',
+    'detached_adu_max_size_sqft', 'adu_parking_spaces_required'
+  ]
+  const presentFields = requiredFields.filter(field => bylawData[field] !== null && bylawData[field] !== undefined)
+  const completeness = presentFields.length / requiredFields.length
+
+  // Determine content status
+  let contentStatus = ''
+  let contentClass = ''
+  if (completeness >= 0.8) {
+    contentStatus = 'Complete'
+    contentClass = 'bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800 text-green-600 dark:text-green-400'
+  } else if (completeness >= 0.5) {
+    contentStatus = 'Partial'
+    contentClass = 'bg-yellow-50 dark:bg-yellow-950/30 border-yellow-200 dark:border-yellow-800 text-yellow-600 dark:text-yellow-400'
+  } else {
+    contentStatus = 'Incomplete'
+    contentClass = 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800 text-red-600 dark:text-red-400'
+  }
+
+  // Determine review status
+  let reviewStatus = ''
+  if (bylawData.reviewed_by && bylawData.review_date) {
+    reviewStatus = 'Verified'
+  } else {
+    reviewStatus = 'Draft'
+  }
+
+  // Review status icon (simplified)
+  const ReviewIcon = reviewStatus === 'Verified' ? FileText : Eye
+  const reviewIconClass = reviewStatus === 'Verified' 
+    ? 'h-3 w-3 text-blue-500' 
+    : 'h-3 w-3 text-orange-500'
+
+  return {
+    contentBadge: {
+      text: contentStatus,
+      className: `text-xs border px-1.5 py-0.5 rounded ${contentClass}`
+    },
+    reviewIcon: { Icon: ReviewIcon, className: reviewIconClass, status: reviewStatus }
+  }
 }
 
 export default function LotConfigurator() {
@@ -96,8 +155,36 @@ export default function LotConfigurator() {
   
   // Note: Removed circular dependency - local state (aduType, aduStories) is source of truth
 
+  // Helper function to calculate default ADU position (centered in buildable area)
+  const calculateDefaultAduPosition = (config: Config) => {
+    const buildableLeft = config.sideSetback
+    const buildableTop = config.frontSetback
+    const buildableRight = config.lotWidth - config.sideSetback
+    const buildableBottom = config.lotDepth - config.rearSetback
+    
+    // Center the ADU in the buildable area
+    const centerX = buildableLeft + (buildableRight - buildableLeft - config.aduWidth) / 2
+    const centerY = buildableTop + (buildableBottom - buildableTop - config.aduDepth) / 2
+    
+    return { 
+      x: Math.max(buildableLeft, centerX),
+      y: Math.max(buildableTop, centerY)
+    }
+  }
+
   const [obstacles, setObstacles] = useState<Obstacle[]>([])
-  const [aduPosition, setAduPosition] = useState({ x: 50, y: 60 })
+  const [aduPosition, setAduPosition] = useState(() => {
+    const defaultConfig = {
+      lotWidth: 65,
+      lotDepth: 120,
+      frontSetback: 10,
+      rearSetback: 5,
+      sideSetback: 4,
+      aduWidth: 20,
+      aduDepth: 24
+    }
+    return calculateDefaultAduPosition(defaultConfig)
+  })
   const [selectedElement, setSelectedElement] = useState<{type: 'adu' | 'obstacle', id?: string} | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
@@ -111,7 +198,7 @@ export default function LotConfigurator() {
   
   // Municipality selection and bylaw data
   const [municipalities, setMunicipalities] = useState<MunicipalityWithBylawData[]>([])
-  const [selectedMunicipality, setSelectedMunicipality] = useState<number | null>(13) // Default to Ajax (ID 13) for testing
+  const [selectedMunicipality, setSelectedMunicipality] = useState<number | null>(null)
   const [bylawValidation, setBylawValidation] = useState<BylawValidationResult>({
     isValid: true,
     violations: [],
@@ -847,7 +934,7 @@ export default function LotConfigurator() {
     return withinBuildable && !hasCollision && !separationViolation
   }, [config, aduPosition, obstacles])
 
-  // Automatically reposition ADU when constraints would be violated
+  // Automatically reposition ADU when constraints would be violated or for better centering
   useEffect(() => {
     const buildable = getBuildableArea()
     
@@ -862,12 +949,15 @@ export default function LotConfigurator() {
       aduBottom > buildable.bottom
     
     if (violatesConstraints) {
-      const constrainedPosition = constrainAduPosition(aduPosition.x, aduPosition.y)
-      if (constrainedPosition.x !== aduPosition.x || constrainedPosition.y !== aduPosition.y) {
-        setAduPosition(constrainedPosition)
+      // When constraints are violated, try to center the ADU first, then constrain if needed
+      const centeredPosition = calculateDefaultAduPosition(config)
+      const finalPosition = constrainAduPosition(centeredPosition.x, centeredPosition.y)
+      
+      if (finalPosition.x !== aduPosition.x || finalPosition.y !== aduPosition.y) {
+        setAduPosition(finalPosition)
       }
     }
-  }, [config.lotWidth, config.lotDepth, config.frontSetback, config.rearSetback, config.sideSetback, config.aduWidth, config.aduDepth, getBuildableArea, constrainAduPosition, aduPosition])
+  }, [config.lotWidth, config.lotDepth, config.frontSetback, config.rearSetback, config.sideSetback, config.aduWidth, config.aduDepth, getBuildableArea, constrainAduPosition, aduPosition, calculateDefaultAduPosition, config])
 
   const addObstacle = (type: string) => {
     const sizes: Record<string, { width: number; height: number }> = {
@@ -1161,51 +1251,194 @@ export default function LotConfigurator() {
     return report
   }
 
-  const exportConfiguration = () => {
-    const timestamp = new Date()
-    const metrics = calculateMetrics()
-    
-    const data = {
-      property: {
-        lotWidth: config.lotWidth,
-        lotDepth: config.lotDepth,
-        lotArea: metrics.lotArea
-      },
-      setbacks: {
-        front: config.frontSetback,
-        rear: config.rearSetback,
-        sides: config.sideSetback
-      },
-      adu: {
-        width: config.aduWidth,
-        depth: config.aduDepth,
-        area: metrics.aduArea,
-        position: aduPosition
-      },
-      obstacles: obstacles.map(o => ({
-        type: o.type,
-        width: o.width,
-        depth: o.depth,
-        position: { x: o.x, y: o.y }
-      })),
-      analysis: {
-        buildableArea: metrics.buildableAreaSize,
-        coverage: metrics.coverage.toFixed(1) + '%',
-        isValid: checkAduValidPlacement(),
-        obstacleCount: obstacles.length
-      },
-      timestamp: timestamp.toISOString()
+  const exportConfiguration = async () => {
+    try {
+      // Dynamic import to avoid SSR issues
+      const { default: jsPDF } = await import('jspdf')
+      
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'letter'
+      })
+      
+      const report = generateDetailedReport()
+      const timestamp = new Date().toLocaleDateString()
+      
+      // Title and Header
+      pdf.setFontSize(20)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('ADU Lot Configuration Report', 20, 30)
+      
+      pdf.setFontSize(12)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text(`Generated: ${timestamp}`, 20, 45)
+      pdf.text(`Municipality: ${report.municipality}`, 20, 55)
+      
+      let yPosition = 70
+      
+      // Property Information Section
+      pdf.setFontSize(16)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('Property Information', 20, yPosition)
+      yPosition += 15
+      
+      pdf.setFontSize(11)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text(`Lot Size: ${report.property.lotSize}`, 25, yPosition)
+      yPosition += 8
+      pdf.text(`Lot Area: ${report.property.lotArea}`, 25, yPosition)
+      yPosition += 8
+      pdf.text(`Buildable Area: ${report.property.buildableArea}`, 25, yPosition)
+      yPosition += 8
+      
+      if (report.property.cornerLot) {
+        pdf.text(`• ${report.property.cornerLot}`, 25, yPosition)
+        yPosition += 8
+      }
+      if (report.property.alleyAccess) {
+        pdf.text(`• ${report.property.alleyAccess}`, 25, yPosition)
+        yPosition += 8
+      }
+      
+      yPosition += 10
+      
+      // ADU Configuration Section
+      pdf.setFontSize(16)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('ADU Configuration', 20, yPosition)
+      yPosition += 15
+      
+      pdf.setFontSize(11)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text(`Type: ${report.adu.type.charAt(0).toUpperCase() + report.adu.type.slice(1)}`, 25, yPosition)
+      yPosition += 8
+      pdf.text(`Dimensions: ${report.adu.size}`, 25, yPosition)
+      yPosition += 8
+      pdf.text(`Floor Area: ${report.adu.area}`, 25, yPosition)
+      yPosition += 8
+      pdf.text(`Stories: ${report.adu.stories}`, 25, yPosition)
+      yPosition += 8
+      pdf.text(`Position: ${report.adu.position}`, 25, yPosition)
+      yPosition += 15
+      
+      // Setbacks Section
+      pdf.setFontSize(16)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('Setbacks', 20, yPosition)
+      yPosition += 15
+      
+      pdf.setFontSize(11)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text(`Front: ${report.setbacks.front}`, 25, yPosition)
+      yPosition += 8
+      pdf.text(`Rear: ${report.setbacks.rear}`, 25, yPosition)
+      yPosition += 8
+      pdf.text(`Side: ${report.setbacks.side}`, 25, yPosition)
+      yPosition += 8
+      
+      if (report.setbacks.notes) {
+        yPosition += 5
+        report.setbacks.notes.forEach((note) => {
+          pdf.text(`• ${note}`, 30, yPosition)
+          yPosition += 8
+        })
+      }
+      
+      yPosition += 10
+      
+      // Compliance Section
+      pdf.setFontSize(16)
+      pdf.setFont('helvetica', 'bold')
+      const complianceColor = report.compliance.isValid ? [0, 128, 0] : [204, 0, 0]
+      pdf.setTextColor(...complianceColor)
+      pdf.text('Compliance Status', 20, yPosition)
+      yPosition += 15
+      
+      pdf.setTextColor(0, 0, 0)
+      pdf.setFontSize(12)
+      pdf.setFont('helvetica', 'bold')
+      pdf.setTextColor(...complianceColor)
+      pdf.text(report.compliance.isValid ? '✓ COMPLIANT' : '✗ NON-COMPLIANT', 25, yPosition)
+      yPosition += 15
+      
+      pdf.setTextColor(0, 0, 0)
+      pdf.setFontSize(11)
+      pdf.setFont('helvetica', 'normal')
+      
+      if (report.compliance.violations > 0) {
+        pdf.text(`Violations: ${report.compliance.violations}`, 25, yPosition)
+        yPosition += 8
+      }
+      if (report.compliance.warnings > 0) {
+        pdf.text(`Warnings: ${report.compliance.warnings}`, 25, yPosition)
+        yPosition += 8
+      }
+      
+      // List specific issues
+      if (report.compliance.details && report.compliance.details.length > 0) {
+        yPosition += 5
+        report.compliance.details.forEach((detail) => {
+          if (yPosition > 250) { // Check if we need a new page
+            pdf.addPage()
+            yPosition = 30
+          }
+          pdf.setTextColor(detail.type === 'setback' ? 204 : 255, detail.type === 'setback' ? 0 : 165, 0)
+          pdf.text(`• ${detail.message}`, 30, yPosition)
+          yPosition += 8
+        })
+      }
+      
+      pdf.setTextColor(0, 0, 0)
+      yPosition += 10
+      
+      // Calculations Section
+      if (yPosition > 230) {
+        pdf.addPage()
+        yPosition = 30
+      }
+      
+      pdf.setFontSize(16)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('Calculations', 20, yPosition)
+      yPosition += 15
+      
+      pdf.setFontSize(11)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text(`Lot Coverage: ${report.calculations.lotCoverage}`, 25, yPosition)
+      yPosition += 8
+      pdf.text(`Separation Distance: ${report.calculations.separationDistance}`, 25, yPosition)
+      yPosition += 20
+      
+      // Footer
+      if (yPosition > 240) {
+        pdf.addPage()
+        yPosition = 30
+      }
+      
+      pdf.setFontSize(10)
+      pdf.setFont('helvetica', 'italic')
+      pdf.setTextColor(128, 128, 128)
+      pdf.text('This report is for planning purposes only. Please verify all requirements', 20, yPosition)
+      pdf.text('with local authorities before proceeding with construction.', 20, yPosition + 8)
+      
+      // Save the PDF
+      const fileName = `lot-configuration-report-${new Date().toISOString().split('T')[0]}.pdf`
+      pdf.save(fileName)
+      
+    } catch (error) {
+      console.error('Error generating PDF:', error)
+      // Fallback to JSON export if PDF fails
+      const report = generateDetailedReport()
+      const json = JSON.stringify(report, null, 2)
+      const blob = new Blob([json], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `lot-configuration-${Date.now()}.json`
+      link.click()
+      URL.revokeObjectURL(url)
     }
-
-    // Export JSON
-    const json = JSON.stringify(data, null, 2)
-    const blob = new Blob([json], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `lot-configuration-${Date.now()}.json`
-    link.click()
-    URL.revokeObjectURL(url)
   }
 
   // Placeholder for missing variables/functions
@@ -1357,14 +1590,36 @@ export default function LotConfigurator() {
                     {municipalities.map((muni) => {
                       const municipalityId = muni.id?.toString() || `temp-${Math.random()}`
                       return (
-                        <SelectItem key={muni.id} value={municipalityId}>
-                          <div className="flex justify-between items-center w-full">
+                        <SelectItem key={muni.id} value={municipalityId} className="w-full block">
+                          <div className="flex items-center justify-between w-full pr-2">
                             <span className="font-medium">{muni.name}</span>
-                            {muni.bylaw_data && (
-                              <Badge variant="secondary" className="text-xs ml-2">
-                                Bylaws
-                              </Badge>
-                            )}
+                            <div className="flex items-center gap-2">
+                              {(() => {
+                                const badgeConfig = getMunicipalityBadgeConfig(muni.bylaw_data)
+                                if (badgeConfig.reviewIcon) {
+                                  const ReviewIcon = badgeConfig.reviewIcon.Icon
+                                  return <ReviewIcon className={badgeConfig.reviewIcon.className} />
+                                }
+                                return null
+                              })()}
+                              {(() => {
+                                const badgeConfig = getMunicipalityBadgeConfig(muni.bylaw_data)
+                                if (badgeConfig.contentBadge) {
+                                  return (
+                                    <span className={badgeConfig.contentBadge.className}>
+                                      {badgeConfig.contentBadge.text}
+                                    </span>
+                                  )
+                                } else {
+                                  // Handle "No Data" case (old format)
+                                  return (
+                                    <span className={badgeConfig.className}>
+                                      {badgeConfig.text}
+                                    </span>
+                                  )
+                                }
+                              })()}
+                            </div>
                           </div>
                         </SelectItem>
                       )
@@ -1374,9 +1629,9 @@ export default function LotConfigurator() {
                 
                 {/* Permit Type Display (Phase 1) */}
                 {selectedMunicipalityData?.bylaw_data && (
-                  <div className="flex items-center gap-1.5 text-xs bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-md">
-                    <Building className="h-3.5 w-3.5 text-slate-600" />
-                    <span className="text-slate-700">
+                  <div className="flex items-center gap-1.5 text-xs bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 px-2.5 py-1.5 rounded-md">
+                    <Building className="h-3.5 w-3.5 text-slate-600 dark:text-slate-400" />
+                    <span className="text-slate-700 dark:text-slate-300">
                       <span className="font-medium">Permit Required:</span> {
                         selectedMunicipalityData.bylaw_data.permit_type === 'by_right' ? 'By-Right' :
                         selectedMunicipalityData.bylaw_data.permit_type === 'special_permit' ? 'Special Permit' :
@@ -1396,7 +1651,7 @@ export default function LotConfigurator() {
                     <Ruler className="h-4 w-4 text-muted-foreground" />
                     <span className="text-sm font-medium">Property Dimensions</span>
                   </div>
-                  <div className="flex items-center gap-1.5 text-xs text-blue-600 bg-blue-50/50 border border-dashed border-blue-200 px-2.5 py-1.5 rounded-md">
+                  <div className="flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-950/30 border border-dashed border-blue-200 dark:border-blue-800 px-2.5 py-1.5 rounded-md">
                     <Info className="h-3.5 w-3.5" />
                     <span>Validate via site visit</span>
                   </div>
@@ -1732,7 +1987,7 @@ export default function LotConfigurator() {
                     <span className="text-sm font-medium">Setbacks</span>
                   </div>
                   {selectedMunicipalityData?.bylaw_data && (setbacksFromBylaws.front || setbacksFromBylaws.rear || setbacksFromBylaws.side || separationFromBylaws) && (
-                    <div className="flex items-center gap-1.5 text-xs text-blue-600 bg-blue-50/50 border border-dashed border-blue-200 px-2.5 py-1.5 rounded-md">
+                    <div className="flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-950/30 border border-dashed border-blue-200 dark:border-blue-800 px-2.5 py-1.5 rounded-md">
                       <Info className="h-3.5 w-3.5" />
                       <span>Set by municipal bylaws</span>
                     </div>
@@ -2234,7 +2489,7 @@ export default function LotConfigurator() {
                         <div className="space-y-2 mb-3">
                           {/* Module preset notice for ADUs */}
                           {isADU && aduModule !== 'custom' && (
-                            <div className="flex items-center gap-1.5 text-xs text-blue-600 bg-blue-50/50 border border-dashed border-blue-200 px-2.5 py-1.5 rounded-md mb-2">
+                            <div className="flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-950/30 border border-dashed border-blue-200 dark:border-blue-800 px-2.5 py-1.5 rounded-md mb-2">
                               <Info className="h-3.5 w-3.5" />
                               <span>Set by module preset</span>
                             </div>
