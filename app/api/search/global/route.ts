@@ -290,10 +290,14 @@ export async function GET(request: NextRequest) {
               // Filter by ADU type (search in content and title)
               if (aduType) {
                 const aduTypeKeywords: Record<string, string[]> = {
-                  'secondary-suite': ['secondary suite', 'second suite'],
-                  'garden-suite': ['garden suite', 'garden unit'],
-                  'laneway': ['laneway', 'lane way', 'laneway house'],
-                  'coach-house': ['coach house', 'carriage house']
+                  'accessory-dwelling-unit': ['accessory dwelling unit', 'adu', 'accessory unit'],
+                  'laneway-home': ['laneway home', 'laneway house', 'lane way home', 'lane way house'],
+                  'garden-suite': ['garden suite', 'backyard suite', 'garden unit'],
+                  'tiny-home': ['tiny home', 'tiny house', 'micro home'],
+                  'coach-house': ['coach house', 'carriage house', 'coach home'],
+                  'granny-flat': ['granny flat', 'in-law suite', 'mother-in-law suite', 'in law suite'],
+                  'secondary-suite': ['secondary suite', 'second suite', 'basement suite'],
+                  'additional-residential-unit': ['additional residential unit', 'aru', 'additional unit']
                 }
                 
                 const keywords = aduTypeKeywords[aduType] || []

@@ -520,133 +520,177 @@ function SearchPageContent() {
       </div>
 
 
-      {/* Filters */}
+      {/* Filters - Collapsible */}
       {showFilters && (
         <div className="max-w-4xl mx-auto mb-6">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-lg">Filters</CardTitle>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={clearFilters}>
-                    Clear All
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => setShowFilters(false)}>
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
+          <div className="border border-border/50 bg-background/50 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">Filters</span>
               </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Dropdown Filters */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Categories Filter */}
-                <div>
-                  <Label className="text-sm font-medium mb-2 block">Category</Label>
-                  <Select 
-                    value={selectedCategories[0] || 'all'} 
-                    onValueChange={(value) => {
-                      const newCategories = value === "all" ? [] : [value]
-                      setSelectedCategories(newCategories)
-                      updateCategories(newCategories)
-                    }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="All Categories" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Categories</SelectItem>
-                      {categories.map((category) => (
-                        <SelectItem key={category.id} value={category.name}>
-                          {category.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* ADU Type Filter */}
-                <div>
-                  <Label className="text-sm font-medium mb-2 block">ADU Type</Label>
-                  <Select 
-                    value={selectedAduType || "all"} 
-                    onValueChange={(value) => {
-                      const aduTypeValue = value === "all" ? "" : value
-                      setSelectedAduType(aduTypeValue)
-                      updateAduType(aduTypeValue)
-                    }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="All ADU Types" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All ADU Types</SelectItem>
-                      <SelectItem value="secondary-suite">Secondary Suite</SelectItem>
-                      <SelectItem value="garden-suite">Garden Suite</SelectItem>
-                      <SelectItem value="laneway">Laneway House</SelectItem>
-                      <SelectItem value="coach-house">Coach House</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={clearFilters} className="h-8 text-xs">
+                  Clear All
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setShowFilters(false)} className="h-8">
+                  <X className="h-4 w-4" />
+                </Button>
               </div>
-
-              <Separator />
-
-              {/* Checkbox Filters */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <Label className="text-sm font-medium mb-3 block">Search Options</Label>
-                  <div className="space-y-3">
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="search-content"
-                        checked={filters.searchType === 'fulltext'}
-                        onCheckedChange={(checked) => 
-                          setSearchType(checked === true ? 'fulltext' : 'basic')
-                        }
-                      />
-                      <Label 
-                        htmlFor="search-content" 
-                        className="text-sm font-normal cursor-pointer"
+            </div>
+            
+            <div className="space-y-4">
+              {/* Categories Filter */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-sm font-medium">Filter by category:</span>
+                  {selectedCategories.length > 0 && (
+                    <Badge variant="secondary" className="text-xs">
+                      {selectedCategories.length} selected
+                    </Badge>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-2 items-center">
+                  <Button
+                    variant={selectedCategories.length === 0 ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => {
+                      setSelectedCategories([])
+                      updateCategories([])
+                    }}
+                    className="h-8"
+                  >
+                    All Categories
+                  </Button>
+                  {categories.map((category) => {
+                    const isSelected = selectedCategories.includes(category.name)
+                    return (
+                      <Button
+                        key={category.id}
+                        variant={isSelected ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => {
+                          if (isSelected) {
+                            const newCategories = selectedCategories.filter(c => c !== category.name)
+                            setSelectedCategories(newCategories)
+                            updateCategories(newCategories)
+                          } else {
+                            const newCategories = [category.name]
+                            setSelectedCategories(newCategories)
+                            updateCategories(newCategories)
+                          }
+                        }}
+                        className="h-8"
                       >
-                        Search document content
-                      </Label>
-                      <HelpTooltip 
-                        content="Search inside PDF documents, not just titles and filenames. More comprehensive but may be slower."
-                        variant="help"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <Label className="text-sm font-medium mb-3 block">Document Types</Label>
-                  <div className="space-y-3">
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="relevant-only"
-                        checked={isRelevantOnly}
-                        onCheckedChange={(checked) => setIsRelevantOnly(checked === true)}
-                      />
-                      <Label htmlFor="relevant-only" className="text-sm font-normal cursor-pointer">
-                        ADU relevant only
-                      </Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="analyzed-only"
-                        checked={isAnalyzedOnly}
-                        onCheckedChange={(checked) => setIsAnalyzedOnly(checked === true)}
-                      />
-                      <Label htmlFor="analyzed-only" className="text-sm font-normal cursor-pointer">
-                        Analyzed documents only
-                      </Label>
-                    </div>
-                  </div>
+                        {category.name}
+                      </Button>
+                    )
+                  })}
                 </div>
               </div>
-            </CardContent>
-          </Card>
+
+              {/* ADU Type Filter */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-sm font-medium">Filter by ADU type:</span>
+                  {selectedAduType && (
+                    <Badge variant="secondary" className="text-xs">
+                      1 selected
+                    </Badge>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-2 items-center">
+                  <Button
+                    variant={!selectedAduType ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => {
+                      setSelectedAduType('')
+                      updateAduType('')
+                    }}
+                    className="h-8"
+                  >
+                    All ADU Types
+                  </Button>
+                  {[
+                    { value: "adu", label: "Accessory Dwelling Unit (ADU)" },
+                    { value: "laneway-home", label: "Laneway Home" },
+                    { value: "garden-suite", label: "Garden Suite" },
+                    { value: "tiny-home", label: "Tiny Home" },
+                    { value: "coach-house", label: "Coach House / Carriage House" },
+                    { value: "granny-flat", label: "Granny Flat / In-Law Suite" },
+                    { value: "secondary-suite", label: "Secondary Suite" },
+                    { value: "aru", label: "Additional Residential Unit (ARU)" }
+                  ].map((aduType) => {
+                    const isSelected = selectedAduType === aduType.value
+                    return (
+                      <Button
+                        key={aduType.value}
+                        variant={isSelected ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => {
+                          if (isSelected) {
+                            setSelectedAduType('')
+                            updateAduType('')
+                          } else {
+                            setSelectedAduType(aduType.value)
+                            updateAduType(aduType.value)
+                          }
+                        }}
+                        className="h-8"
+                      >
+                        {aduType.label}
+                      </Button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Checkboxes */}
+              <div className="flex flex-wrap items-center gap-6">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="search-content"
+                    checked={filters.searchType === 'fulltext'}
+                    onCheckedChange={(checked) => 
+                      setSearchType(checked === true ? 'fulltext' : 'basic')
+                    }
+                  />
+                  <Label 
+                    htmlFor="search-content" 
+                    className="text-sm cursor-pointer"
+                  >
+                    Search document content
+                  </Label>
+                  <HelpTooltip 
+                    content="Search inside PDF documents, not just titles and filenames."
+                    variant="help"
+                  />
+                </div>
+                
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="relevant-only"
+                    checked={isRelevantOnly}
+                    onCheckedChange={(checked) => setIsRelevantOnly(checked === true)}
+                  />
+                  <Label htmlFor="relevant-only" className="text-sm cursor-pointer">
+                    ADU relevant only
+                  </Label>
+                </div>
+                
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="analyzed-only"
+                    checked={isAnalyzedOnly}
+                    onCheckedChange={(checked) => setIsAnalyzedOnly(checked === true)}
+                  />
+                  <Label htmlFor="analyzed-only" className="text-sm cursor-pointer">
+                    Analyzed documents only
+                  </Label>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
