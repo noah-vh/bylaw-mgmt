@@ -263,6 +263,7 @@ export interface MunicipalityBylawDataInput {
   source_documents?: string[];
   data_entry_completed_by?: string;
   reviewed_by?: string;
+  review_date?: string;
 }
 
 // Municipality with bylaw data
