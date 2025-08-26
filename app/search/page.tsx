@@ -43,6 +43,7 @@ import { DocumentViewer } from "@/components/document-viewer"
 import { useAdvancedDocumentSearch } from "@/hooks/use-documents"
 import { useMunicipalities } from "@/hooks/use-municipalities"
 import { useGlobalSearch } from "@/hooks/use-global-search"
+import { useCategories } from "@/hooks/use-categories"
 import { format } from "date-fns"
 import type { PdfDocument } from "@/types/database"
 import { createDocumentId, createMunicipalityId } from "@/types/database"
@@ -59,6 +60,8 @@ function SearchPageContent() {
   const [searchType, setSearchType] = useState<'basic' | 'fulltext'>('fulltext')
   const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set())
   const [selectedDocument, setSelectedDocument] = useState<(PdfDocument & { municipality?: { name: string } }) | null>(null)
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([])
+  const [selectedAduType, setSelectedAduType] = useState<string>('')
   
   const handleOpenDocument = async (document: PdfDocument & { municipality?: { name: string } }) => {
     // If document lacks content_text, fetch complete document data
@@ -133,7 +136,11 @@ function SearchPageContent() {
     updateLimit,
     municipalityIds,
     updateMunicipalityIds,
-    municipalityCounts
+    municipalityCounts,
+    categories: searchCategories,
+    aduType: searchAduType,
+    updateCategories,
+    updateAduType
   } = useGlobalSearch(initialQuery)
 
   // Advanced document search - kept for potential future use but not currently used
@@ -147,6 +154,7 @@ function SearchPageContent() {
   // } = useAdvancedDocumentSearch()
 
   const { data: municipalitiesData } = useMunicipalities({ limit: 100 })
+  const { categories, loading: categoriesLoading } = useCategories()
 
   // Initialize search from URL params
   useEffect(() => {
@@ -239,12 +247,16 @@ function SearchPageContent() {
     setIsRelevantOnly(false)
     setIsAnalyzedOnly(false)
     setDateRange({})
+    setSelectedCategories([])
+    setSelectedAduType('')
   }
 
   const activeFiltersCount = (municipalityIds.length > 0 ? 1 : 0) + 
     (isRelevantOnly ? 1 : 0) + 
     (isAnalyzedOnly ? 1 : 0) + 
-    (dateRange.from || dateRange.to ? 1 : 0)
+    (dateRange.from || dateRange.to ? 1 : 0) +
+    (selectedCategories.length > 0 ? 1 : 0) +
+    (selectedAduType ? 1 : 0)
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -283,6 +295,8 @@ function SearchPageContent() {
               }}
             />
           </div>
+          
+          
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
@@ -505,13 +519,14 @@ function SearchPageContent() {
         </Collapsible>
       </div>
 
-      {/* Advanced Filters */}
+
+      {/* Filters */}
       {showFilters && (
         <div className="max-w-4xl mx-auto mb-6">
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle className="text-lg">Advanced Filters</CardTitle>
+                <CardTitle className="text-lg">Filters</CardTitle>
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" onClick={clearFilters}>
                     Clear All
@@ -523,63 +538,110 @@ function SearchPageContent() {
               </div>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Search Type Toggle */}
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <Label className="text-sm font-medium">Search Type</Label>
-                  <HelpTooltip 
-                    content="Content search looks inside PDF documents, not just titles. This provides more comprehensive results but may be slower."
-                    variant="help"
-                  />
+              {/* Dropdown Filters */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Categories Filter */}
+                <div>
+                  <Label className="text-sm font-medium mb-2 block">Category</Label>
+                  <Select 
+                    value={selectedCategories[0] || 'all'} 
+                    onValueChange={(value) => {
+                      const newCategories = value === "all" ? [] : [value]
+                      setSelectedCategories(newCategories)
+                      updateCategories(newCategories)
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="All Categories" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Categories</SelectItem>
+                      {categories.map((category) => (
+                        <SelectItem key={category.id} value={category.name}>
+                          {category.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-                <div className="flex items-center space-x-4">
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                      id="search-content"
-                      checked={filters.searchType === 'fulltext'}
-                      onCheckedChange={(checked) => 
-                        setSearchType(checked === true ? 'fulltext' : 'basic')
-                      }
-                    />
-                    <Label 
-                      htmlFor="search-content" 
-                      className="text-sm font-normal cursor-pointer"
-                    >
-                      Search within document content
-                    </Label>
-                  </div>
+
+                {/* ADU Type Filter */}
+                <div>
+                  <Label className="text-sm font-medium mb-2 block">ADU Type</Label>
+                  <Select 
+                    value={selectedAduType || "all"} 
+                    onValueChange={(value) => {
+                      const aduTypeValue = value === "all" ? "" : value
+                      setSelectedAduType(aduTypeValue)
+                      updateAduType(aduTypeValue)
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="All ADU Types" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All ADU Types</SelectItem>
+                      <SelectItem value="secondary-suite">Secondary Suite</SelectItem>
+                      <SelectItem value="garden-suite">Garden Suite</SelectItem>
+                      <SelectItem value="laneway">Laneway House</SelectItem>
+                      <SelectItem value="coach-house">Coach House</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {filters.searchType === 'fulltext' 
-                    ? 'Searching in titles, filenames, and document content'
-                    : 'Searching in titles and filenames only'}
-                </p>
               </div>
 
+              <Separator />
 
-              {/* Document Type Filters */}
-              <div>
-                <Label className="text-sm font-medium">Document Types</Label>
-                <div className="mt-2 space-y-2">
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                      id="relevant-only"
-                      checked={isRelevantOnly}
-                      onCheckedChange={(checked) => setIsRelevantOnly(checked === true)}
-                    />
-                    <Label htmlFor="relevant-only" className="text-sm">
-                      ADU Relevant Documents Only
-                    </Label>
+              {/* Checkbox Filters */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <Label className="text-sm font-medium mb-3 block">Search Options</Label>
+                  <div className="space-y-3">
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="search-content"
+                        checked={filters.searchType === 'fulltext'}
+                        onCheckedChange={(checked) => 
+                          setSearchType(checked === true ? 'fulltext' : 'basic')
+                        }
+                      />
+                      <Label 
+                        htmlFor="search-content" 
+                        className="text-sm font-normal cursor-pointer"
+                      >
+                        Search document content
+                      </Label>
+                      <HelpTooltip 
+                        content="Search inside PDF documents, not just titles and filenames. More comprehensive but may be slower."
+                        variant="help"
+                      />
+                    </div>
                   </div>
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                      id="analyzed-only"
-                      checked={isAnalyzedOnly}
-                      onCheckedChange={(checked) => setIsAnalyzedOnly(checked === true)}
-                    />
-                    <Label htmlFor="analyzed-only" className="text-sm">
-                      Analyzed Documents Only
-                    </Label>
+                </div>
+
+                <div>
+                  <Label className="text-sm font-medium mb-3 block">Document Types</Label>
+                  <div className="space-y-3">
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="relevant-only"
+                        checked={isRelevantOnly}
+                        onCheckedChange={(checked) => setIsRelevantOnly(checked === true)}
+                      />
+                      <Label htmlFor="relevant-only" className="text-sm font-normal cursor-pointer">
+                        ADU relevant only
+                      </Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="analyzed-only"
+                        checked={isAnalyzedOnly}
+                        onCheckedChange={(checked) => setIsAnalyzedOnly(checked === true)}
+                      />
+                      <Label htmlFor="analyzed-only" className="text-sm font-normal cursor-pointer">
+                        Analyzed documents only
+                      </Label>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -663,6 +725,10 @@ function SearchPageContent() {
             {/* Documents Results */}
             {searchDocuments.length > 0 && (activeFilters.size === 0 || activeFilters.has('documents')) && (
               <div>
+                <div className="flex items-center gap-2 mb-4">
+                  <FileText className="h-5 w-5 text-muted-foreground" />
+                  <h3 className="text-lg font-semibold">Documents</h3>
+                </div>
                 <div className="space-y-4">
                   {searchDocuments.map((document: any) => {
                     // Convert search result document to PdfDocument format

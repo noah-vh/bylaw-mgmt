@@ -62,8 +62,8 @@ interface ADUPreset {
 
 export default function LotConfigurator() {
   const [config, setConfig] = useState<Config>({
-    lotWidth: 100,
-    lotDepth: 120,
+    lotWidth: 65, // Default width within range of 15-300 ft
+    lotDepth: 120, // Default depth within range of 50-300 ft
     frontSetback: 10,
     rearSetback: 5,
     sideSetback: 4,
@@ -106,10 +106,12 @@ export default function LotConfigurator() {
   const [dragPositions, setDragPositions] = useState<{adu?: {x: number, y: number}, obstacles?: Record<string, {x: number, y: number}>}>({})
   const lastUpdateRef = useRef(0)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const visualizationContainerRef = useRef<HTMLDivElement>(null)
+  const [containerDimensions, setContainerDimensions] = useState({ width: 600, height: 400 })
   
   // Municipality selection and bylaw data
   const [municipalities, setMunicipalities] = useState<MunicipalityWithBylawData[]>([])
-  const [selectedMunicipality, setSelectedMunicipality] = useState<number | null>(null)
+  const [selectedMunicipality, setSelectedMunicipality] = useState<number | null>(13) // Default to Ajax (ID 13) for testing
   const [bylawValidation, setBylawValidation] = useState<BylawValidationResult>({
     isValid: true,
     violations: [],
@@ -124,12 +126,41 @@ export default function LotConfigurator() {
   })
   const [isApplyingBylaws, setIsApplyingBylaws] = useState(false)
 
+  // Property type characteristics
+  const [isCornerLot, setIsCornerLot] = useState(false)
+  const [hasAlleyAccess, setHasAlleyAccess] = useState(false)
+
   // Conversion constants
   const FEET_TO_METERS = 0.3048
   const SQFT_TO_SQM = 0.092903
 
-  // Canvas size
-  const [canvasSize, setCanvasSize] = useState({ width: 600, height: 400 })
+  // Dynamic container size tracking
+  useEffect(() => {
+    const updateContainerSize = () => {
+      if (visualizationContainerRef.current) {
+        const rect = visualizationContainerRef.current.getBoundingClientRect()
+        const padding = 32 // Account for padding and margins
+        setContainerDimensions({
+          width: Math.max(300, rect.width - padding),
+          height: Math.max(200, rect.height - padding)
+        })
+      }
+    }
+
+    updateContainerSize()
+    
+    const resizeObserver = new ResizeObserver(updateContainerSize)
+    if (visualizationContainerRef.current) {
+      resizeObserver.observe(visualizationContainerRef.current)
+    }
+
+    window.addEventListener('resize', updateContainerSize)
+    
+    return () => {
+      resizeObserver.disconnect()
+      window.removeEventListener('resize', updateContainerSize)
+    }
+  }, [])
 
   // Unit conversion functions
   const toDisplay = useCallback((value: number, isArea = false) => {
@@ -190,7 +221,9 @@ export default function LotConfigurator() {
         if (response.ok) {
           const result = await response.json()
           console.log('API response:', result)
-          console.log('Ajax municipality data:', result.data.find(m => m.id === 13))
+          const ajaxMuni = result.data.find((m: any) => m.id === 13);
+          console.log('Ajax municipality data:', ajaxMuni)
+          console.log('Ajax bylaw data:', ajaxMuni?.bylaw_data)
           setMunicipalities(result.data)
         } else {
           console.error('Failed to load municipalities')
@@ -206,12 +239,23 @@ export default function LotConfigurator() {
   }, [])
 
   // Get selected municipality data
-  const selectedMunicipalityData = municipalities.find(m => m.id === selectedMunicipality)
+  const selectedMunicipalityData = municipalities.find((m: any) => m.id === selectedMunicipality)
+  
+  // Debug the selected municipality data
+  useEffect(() => {
+    console.log('Selected municipality changed:', {
+      selectedMunicipality,
+      selectedMunicipalityData: selectedMunicipalityData?.name,
+      hasBylawData: !!selectedMunicipalityData?.bylaw_data,
+      minLotWidth: selectedMunicipalityData?.bylaw_data?.min_lot_width_ft,
+      currentLotWidth: config.lotWidth
+    });
+  }, [selectedMunicipality, selectedMunicipalityData, config.lotWidth])
 
   // Apply bylaw constraints when municipality is selected
   const applyBylawConstraints = useCallback(() => {
     // Get fresh municipality data to avoid closure issues
-    const currentMunicipalityData = municipalities.find(m => m.id === selectedMunicipality)
+    const currentMunicipalityData = municipalities.find((m: any) => m.id === selectedMunicipality)
     console.log('applyBylawConstraints called for:', currentMunicipalityData?.name)
     console.log('bylaw_data exists:', !!currentMunicipalityData?.bylaw_data)
     
@@ -349,21 +393,33 @@ export default function LotConfigurator() {
       changes.push(`Front setback set to: ${bylawData.front_setback_min_ft}'`)
     }
     
+    // Handle rear setback based on alley access
     if (bylawData.rear_setback_standard_ft) {
-      configUpdates.rearSetback = parseFloat(bylawData.rear_setback_standard_ft)
+      const rearSetback = hasAlleyAccess && bylawData.rear_setback_with_alley_ft 
+        ? parseFloat(bylawData.rear_setback_with_alley_ft)
+        : parseFloat(bylawData.rear_setback_standard_ft)
+      configUpdates.rearSetback = rearSetback
       newSetbacksFromBylaws.rear = true
-      changes.push(`Rear setback set to: ${bylawData.rear_setback_standard_ft}'`)
+      const setbackType = hasAlleyAccess && bylawData.rear_setback_with_alley_ft ? ' (w/ alley)' : ''
+      changes.push(`Rear setback set to: ${rearSetback}'${setbackType}`)
     }
     
+    // Handle side setback based on corner lot
     if (bylawData.side_setback_interior_ft) {
-      configUpdates.sideSetback = parseFloat(bylawData.side_setback_interior_ft)
+      const sideSetback = isCornerLot && bylawData.side_setback_corner_street_ft 
+        ? parseFloat(bylawData.side_setback_corner_street_ft)
+        : parseFloat(bylawData.side_setback_interior_ft)
+      configUpdates.sideSetback = sideSetback
       newSetbacksFromBylaws.side = true
-      changes.push(`Side setback set to: ${bylawData.side_setback_interior_ft}'`)
+      const setbackType = isCornerLot && bylawData.side_setback_corner_street_ft ? ' (corner)' : ''
+      changes.push(`Side setback set to: ${sideSetback}'${setbackType}`)
     }
     
     // Override default separation if bylaw specifies it
     if (bylawData.distance_from_primary_ft) {
       configUpdates.separationFromMain = parseFloat(bylawData.distance_from_primary_ft)
+      // Set the flag to indicate separation is from bylaws
+      setSeparationFromBylaws(true)
       // Update the changes message to show it's from bylaws, not default
       const defaultMessage = `Separation from residence set to default: ${configUpdates.separationFromMain}' (${aduStories >= 2 ? '7.5m' : '5m'})`
       const bylawMessage = `Separation from residence set to: ${bylawData.distance_from_primary_ft}' (bylaw requirement)`
@@ -374,6 +430,9 @@ export default function LotConfigurator() {
       } else {
         changes.push(bylawMessage)
       }
+    } else {
+      // Reset the flag if no bylaw separation is specified
+      setSeparationFromBylaws(false)
     }
     
     // Apply all config updates at once
@@ -432,7 +491,7 @@ export default function LotConfigurator() {
         needsUpdate = true
         
         // Update separation based on stories, but check if municipality has specific separation requirement
-        const currentMunicipality = municipalities.find(m => m.id === selectedMunicipality)
+        const currentMunicipality = municipalities.find((m: any) => m.id === selectedMunicipality)
         const hasBylawSeparation = currentMunicipality?.bylaw_data?.distance_from_primary_ft
         
         // Only update if no specific bylaw separation requirement exists
@@ -447,6 +506,22 @@ export default function LotConfigurator() {
       return needsUpdate ? { ...prev, ...updates } : prev
     })
   }, [aduType, aduStories, municipalities, selectedMunicipality])
+
+  // Handle property type changes
+  useEffect(() => {
+    // Only reapply if we have a municipality selected and the property type changes
+    if (selectedMunicipality && municipalities.length > 0) {
+      const currentMunicipality = municipalities.find((m: any) => m.id === selectedMunicipality)
+      if (currentMunicipality?.bylaw_data) {
+        // Set a flag to indicate we're applying bylaws to prevent infinite loops
+        setIsApplyingBylaws(true)
+        setTimeout(() => {
+          applyBylawConstraintsForMunicipality(currentMunicipality)
+          setIsApplyingBylaws(false)
+        }, 50)
+      }
+    }
+  }, [isCornerLot, hasAlleyAccess])
 
   const calculateMetrics = useCallback(() => {
     const lotArea = config.lotWidth * config.lotDepth
@@ -515,6 +590,74 @@ export default function LotConfigurator() {
       })
     }
 
+    // PHASE 1: ADU Type Enforcement
+    const aduTypeKey = config.aduType === 'detached' ? 'detached' : 
+                       config.aduType === 'attached' ? 'attached' : 'garage_conversion'
+    
+    if (!bylawData.adu_types_allowed?.[aduTypeKey]) {
+      violations.push({
+        type: 'zoning',
+        message: `${config.aduType.charAt(0).toUpperCase() + config.aduType.slice(1)} ADUs are not permitted`,
+        requirement: 'Check permitted ADU types for this municipality',
+        current_value: config.aduType,
+        required_value: 'permitted ADU type'
+      })
+    }
+
+    // PHASE 1: Story/Height Limits
+    if (bylawData.detached_adu_max_stories && config.aduStories > bylawData.detached_adu_max_stories) {
+      violations.push({
+        type: 'height',
+        message: 'ADU exceeds maximum number of stories',
+        requirement: `Maximum ${bylawData.detached_adu_max_stories} ${bylawData.detached_adu_max_stories === 1 ? 'story' : 'stories'}`,
+        current_value: config.aduStories,
+        required_value: bylawData.detached_adu_max_stories
+      })
+    }
+
+    if (bylawData.detached_adu_max_height_ft) {
+      const estimatedHeight = config.aduStories * 10 // Rough estimate: 10ft per story
+      if (estimatedHeight > bylawData.detached_adu_max_height_ft) {
+        warnings.push({
+          type: 'consideration',
+          message: `ADU may exceed height limit (${estimatedHeight}' estimated vs ${bylawData.detached_adu_max_height_ft}' max)`,
+          details: 'Verify actual height with architectural plans'
+        })
+      }
+    }
+
+    // PHASE 1: Lot Size Requirements
+    const lotArea = config.lotWidth * config.lotDepth
+    if (bylawData.min_lot_size_sqft && lotArea < bylawData.min_lot_size_sqft) {
+      violations.push({
+        type: 'zoning',
+        message: 'Lot size is below minimum requirement for ADUs',
+        requirement: `Minimum ${bylawData.min_lot_size_sqft.toLocaleString()} sq ft`,
+        current_value: lotArea,
+        required_value: bylawData.min_lot_size_sqft
+      })
+    }
+
+    if (bylawData.min_lot_width_ft && config.lotWidth < bylawData.min_lot_width_ft) {
+      violations.push({
+        type: 'zoning',
+        message: 'Lot width is below minimum requirement',
+        requirement: `Minimum ${bylawData.min_lot_width_ft} ft wide`,
+        current_value: config.lotWidth,
+        required_value: bylawData.min_lot_width_ft
+      })
+    }
+
+    if (bylawData.min_lot_depth_ft && config.lotDepth < bylawData.min_lot_depth_ft) {
+      violations.push({
+        type: 'zoning',
+        message: 'Lot depth is below minimum requirement',
+        requirement: `Minimum ${bylawData.min_lot_depth_ft} ft deep`,
+        current_value: config.lotDepth,
+        required_value: bylawData.min_lot_depth_ft
+      })
+    }
+
     // Check ADU size
     const aduArea = config.aduWidth * config.aduDepth
     if (bylawData.detached_adu_max_size_sqft && aduArea > bylawData.detached_adu_max_size_sqft) {
@@ -537,6 +680,9 @@ export default function LotConfigurator() {
       })
     }
 
+    // PHASE 2: Enhanced Setback Validation for Corner Lots & Alley Access
+    // Note: Removed constant warnings - these are now only shown in export reports when selected
+
     // Check lot coverage
     const metrics = calculateMetrics()
     if (bylawData.max_lot_coverage_percent && metrics.coverage > bylawData.max_lot_coverage_percent) {
@@ -547,6 +693,33 @@ export default function LotConfigurator() {
         current_value: metrics.coverage,
         required_value: bylawData.max_lot_coverage_percent
       })
+    }
+
+    // PHASE 2: Impervious Surface Tracking
+    if (bylawData.max_impervious_surface_percent) {
+      // Simplified calculation: assume all structures and driveways are impervious
+      const aduArea = config.aduWidth * config.aduDepth
+      const mainBuildingArea = config.mainBuildingWidth * config.mainBuildingDepth
+      const estimatedDrivewayArea = 400 // Rough estimate for driveway
+      const totalImperviousArea = aduArea + mainBuildingArea + estimatedDrivewayArea
+      const lotArea = config.lotWidth * config.lotDepth
+      const imperviousPercentage = (totalImperviousArea / lotArea) * 100
+
+      if (imperviousPercentage > bylawData.max_impervious_surface_percent) {
+        violations.push({
+          type: 'coverage',
+          message: 'Impervious surface coverage exceeds maximum allowed',
+          requirement: `Maximum ${bylawData.max_impervious_surface_percent}%`,
+          current_value: imperviousPercentage,
+          required_value: bylawData.max_impervious_surface_percent
+        })
+      } else if (imperviousPercentage > bylawData.max_impervious_surface_percent * 0.9) {
+        warnings.push({
+          type: 'consideration',
+          message: 'Approaching impervious surface limit',
+          details: `Current: ${imperviousPercentage.toFixed(1)}%, Maximum: ${bylawData.max_impervious_surface_percent}%`
+        })
+      }
     }
 
     // Check parking (warning)
@@ -601,11 +774,36 @@ export default function LotConfigurator() {
     return !separationFromBylaws && Math.abs(config.separationFromMain - defaultSeparation) < 0.1
   }
 
+  // Helper function to calculate buildable area boundaries
+  const getBuildableArea = useCallback(() => {
+    return {
+      left: config.sideSetback,
+      top: config.frontSetback,
+      right: config.lotWidth - config.sideSetback,
+      bottom: config.lotDepth - config.rearSetback
+    }
+  }, [config.sideSetback, config.frontSetback, config.lotWidth, config.rearSetback, config.lotDepth])
+
+  // Helper function to constrain ADU position within buildable area
+  const constrainAduPosition = useCallback((x: number, y: number) => {
+    const buildable = getBuildableArea()
+    const constrainedX = Math.min(
+      buildable.right - config.aduWidth, 
+      Math.max(buildable.left, x)
+    )
+    const constrainedY = Math.min(
+      buildable.bottom - config.aduDepth, 
+      Math.max(buildable.top, y)
+    )
+    return { x: constrainedX, y: constrainedY }
+  }, [getBuildableArea, config.aduWidth, config.aduDepth])
+
   const checkAduValidPlacement = useCallback(() => {
-    const buildableLeft = config.sideSetback
-    const buildableTop = config.frontSetback
-    const buildableRight = config.lotWidth - config.sideSetback
-    const buildableBottom = config.lotDepth - config.rearSetback
+    const buildable = getBuildableArea()
+    const buildableLeft = buildable.left
+    const buildableTop = buildable.top
+    const buildableRight = buildable.right
+    const buildableBottom = buildable.bottom
 
     const aduLeft = aduPosition.x
     const aduTop = aduPosition.y
@@ -649,6 +847,28 @@ export default function LotConfigurator() {
     return withinBuildable && !hasCollision && !separationViolation
   }, [config, aduPosition, obstacles])
 
+  // Automatically reposition ADU when constraints would be violated
+  useEffect(() => {
+    const buildable = getBuildableArea()
+    
+    // Check if current ADU position violates buildable area constraints
+    const aduRight = aduPosition.x + config.aduWidth
+    const aduBottom = aduPosition.y + config.aduDepth
+    
+    const violatesConstraints = 
+      aduPosition.x < buildable.left || 
+      aduPosition.y < buildable.top || 
+      aduRight > buildable.right || 
+      aduBottom > buildable.bottom
+    
+    if (violatesConstraints) {
+      const constrainedPosition = constrainAduPosition(aduPosition.x, aduPosition.y)
+      if (constrainedPosition.x !== aduPosition.x || constrainedPosition.y !== aduPosition.y) {
+        setAduPosition(constrainedPosition)
+      }
+    }
+  }, [config.lotWidth, config.lotDepth, config.frontSetback, config.rearSetback, config.sideSetback, config.aduWidth, config.aduDepth, getBuildableArea, constrainAduPosition, aduPosition])
+
   const addObstacle = (type: string) => {
     const sizes: Record<string, { width: number; height: number }> = {
       tree: { width: 15, height: 15 },
@@ -681,8 +901,33 @@ export default function LotConfigurator() {
     setObstacles([])
   }
 
-  // Calculate scale factor for visualization
-  const scale = 3.5
+  // Calculate dynamic scale factor for visualization based on actual container size
+  const calculateScale = useCallback(() => {
+    // Use actual container dimensions with padding for labels and UI elements
+    const padding = 60 // Padding for labels, controls, and visual breathing room
+    const maxWidth = Math.max(200, containerDimensions.width - padding)
+    const maxHeight = Math.max(150, containerDimensions.height - padding)
+    
+    // Ensure minimum lot dimensions to prevent division by zero
+    const effectiveWidth = Math.max(15, config.lotWidth)
+    const effectiveDepth = Math.max(50, config.lotDepth)
+    
+    // Calculate scale based on lot dimensions to fit within available space
+    const scaleX = maxWidth / effectiveWidth
+    const scaleY = maxHeight / effectiveDepth
+    
+    // Use the smaller scale to ensure both dimensions fit
+    const dynamicScale = Math.min(scaleX, scaleY)
+    
+    // Set reasonable minimum and maximum scale limits
+    const minScale = 0.2  // Allow smaller visualization for very large lots
+    const maxScale = 12   // Allow larger visualization for very small lots
+    
+    // Round to 2 decimal places for smoother transitions
+    return Math.round(Math.max(minScale, Math.min(maxScale, dynamicScale)) * 100) / 100
+  }, [config.lotWidth, config.lotDepth, containerDimensions])
+  
+  const scale = calculateScale()
 
   // Mouse event handlers for drag and resize
   const handleAduMouseDown = useCallback((e: React.MouseEvent) => {
@@ -876,7 +1121,9 @@ export default function LotConfigurator() {
       property: {
         lotSize: `${toDisplay(config.lotWidth)} × ${toDisplay(config.lotDepth)} ${getUnitLabel()}`,
         lotArea: `${toDisplay(metrics.lotArea, true)} ${getUnitLabel(true)}`,
-        buildableArea: `${toDisplay(metrics.buildableAreaSize, true)} ${getUnitLabel(true)}`
+        buildableArea: `${toDisplay(metrics.buildableAreaSize, true)} ${getUnitLabel(true)}`,
+        ...(isCornerLot && { cornerLot: 'Yes - Corner lot setbacks applied' }),
+        ...(hasAlleyAccess && { alleyAccess: 'Yes - Reduced rear setback applied' })
       },
       adu: {
         type: config.aduType,
@@ -887,8 +1134,18 @@ export default function LotConfigurator() {
       },
       setbacks: {
         front: `${toDisplay(config.frontSetback)} ${getUnitLabel()} ${setbacksFromBylaws.front ? '(from bylaws)' : '(manual)'}`,
-        rear: `${toDisplay(config.rearSetback)} ${getUnitLabel()} ${setbacksFromBylaws.rear ? '(from bylaws)' : '(manual)'}`,
-        side: `${toDisplay(config.sideSetback)} ${getUnitLabel()} ${setbacksFromBylaws.side ? '(from bylaws)' : '(manual)'}`
+        rear: `${toDisplay(config.rearSetback)} ${getUnitLabel()} ${setbacksFromBylaws.rear ? '(from bylaws)' : '(manual)'}${hasAlleyAccess ? ' - alley access applied' : ''}`,
+        side: `${toDisplay(config.sideSetback)} ${getUnitLabel()} ${setbacksFromBylaws.side ? '(from bylaws)' : '(manual)'}${isCornerLot ? ' - corner lot applied' : ''}`,
+        ...(selectedMunicipalityData?.bylaw_data && (isCornerLot || hasAlleyAccess) && {
+          notes: [
+            ...(isCornerLot && selectedMunicipalityData.bylaw_data.side_setback_corner_street_ft 
+              ? [`Corner lot: Street side ${selectedMunicipalityData.bylaw_data.side_setback_corner_street_ft}', Interior ${selectedMunicipalityData.bylaw_data.side_setback_interior_ft || 'standard'}'`] 
+              : []),
+            ...(hasAlleyAccess && selectedMunicipalityData.bylaw_data.rear_setback_with_alley_ft 
+              ? [`Alley access: ${selectedMunicipalityData.bylaw_data.rear_setback_with_alley_ft}' (vs standard ${selectedMunicipalityData.bylaw_data.rear_setback_standard_ft}')`] 
+              : [])
+          ]
+        })
       },
       compliance: {
         isValid: bylawValidation.isValid,
@@ -898,7 +1155,7 @@ export default function LotConfigurator() {
       },
       calculations: {
         lotCoverage: `${metrics.coverage.toFixed(1)}%`,
-        separationDistance: `${toDisplay(config.separationFromMain)} ${getUnitLabel()}`
+        separationDistance: `${toDisplay(config.separationFromMain)} ${getUnitLabel()} ${separationFromBylaws ? '(from bylaws)' : '(manual)'}`
       }
     }
     return report
@@ -966,9 +1223,9 @@ export default function LotConfigurator() {
   const overallValid = isValidPlacement && isBylawCompliant
 
   return (
-    <div className="container mx-auto px-4 py-6 h-screen flex flex-col">
+    <div className="container mx-auto px-4 h-[calc(100vh-6rem)] flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="mb-4">
+      <div className="pt-4 mb-4">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-3">
             <Calculator className="h-8 w-8 text-primary" />
@@ -1006,7 +1263,7 @@ export default function LotConfigurator() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-4 flex-1 min-h-0">
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_2fr] lg:grid-cols-[1fr_1.5fr] gap-4 flex-1 min-h-0 max-h-full overflow-hidden">
         {/* Control Panel */}
         <aside className="space-y-3 overflow-y-auto">
           {/* Configuration Settings */}
@@ -1051,7 +1308,7 @@ export default function LotConfigurator() {
                     console.log('Municipality selected:', value)
                     const municipalityId = value !== 'none' ? parseInt(value) : null
                     console.log('Municipality ID:', municipalityId)
-                    const selectedMuni = municipalities.find(m => m.id === municipalityId)
+                    const selectedMuni = municipalities.find((m: any) => m.id === municipalityId)
                     console.log('Selected municipality data:', selectedMuni)
                     setSelectedMunicipality(municipalityId)
                     if (municipalityId) {
@@ -1062,7 +1319,7 @@ export default function LotConfigurator() {
                       // Wait for municipalities data to be loaded before applying bylaws
                       const waitForMunicipalities = () => {
                         console.log('waitForMunicipalities check - length:', municipalities.length)
-                        const targetMuni = municipalities.find(m => m.id === municipalityId)
+                        const targetMuni = municipalities.find((m: any) => m.id === municipalityId)
                         console.log('Target municipality found:', !!targetMuni, targetMuni?.name)
                         
                         if (municipalities.length > 0 && targetMuni) {
@@ -1097,20 +1354,39 @@ export default function LotConfigurator() {
                         <span className="font-medium">Manual Configuration</span>
                       </div>
                     </SelectItem>
-                    {municipalities.map((muni) => (
-                      <SelectItem key={muni.id} value={muni.id.toString()}>
-                        <div className="flex justify-between items-center w-full">
-                          <span className="font-medium">{muni.name}</span>
-                          {muni.bylaw_data && (
-                            <Badge variant="secondary" className="text-xs ml-2">
-                              Bylaws
-                            </Badge>
-                          )}
-                        </div>
-                      </SelectItem>
-                    ))}
+                    {municipalities.map((muni) => {
+                      const municipalityId = muni.id?.toString() || `temp-${Math.random()}`
+                      return (
+                        <SelectItem key={muni.id} value={municipalityId}>
+                          <div className="flex justify-between items-center w-full">
+                            <span className="font-medium">{muni.name}</span>
+                            {muni.bylaw_data && (
+                              <Badge variant="secondary" className="text-xs ml-2">
+                                Bylaws
+                              </Badge>
+                            )}
+                          </div>
+                        </SelectItem>
+                      )
+                    })}
                   </SelectContent>
                 </Select>
+                
+                {/* Permit Type Display (Phase 1) */}
+                {selectedMunicipalityData?.bylaw_data && (
+                  <div className="flex items-center gap-1.5 text-xs bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-md">
+                    <Building className="h-3.5 w-3.5 text-slate-600" />
+                    <span className="text-slate-700">
+                      <span className="font-medium">Permit Required:</span> {
+                        selectedMunicipalityData.bylaw_data.permit_type === 'by_right' ? 'By-Right' :
+                        selectedMunicipalityData.bylaw_data.permit_type === 'special_permit' ? 'Special Permit' :
+                        selectedMunicipalityData.bylaw_data.permit_type === 'conditional_use' ? 'Conditional Use' :
+                        selectedMunicipalityData.bylaw_data.permit_type === 'variance' ? 'Variance Required' :
+                        'Unknown'
+                      }
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Property Dimensions */}
@@ -1126,67 +1402,155 @@ export default function LotConfigurator() {
                   </div>
                 </div>
                 
+                {/* Property Type Characteristics */}
+                <div className="flex items-center gap-4 text-xs">
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={isCornerLot}
+                      onChange={(e) => setIsCornerLot(e.target.checked)}
+                      className="h-3.5 w-3.5 rounded border-border text-primary focus:ring-primary focus:ring-offset-0 focus:ring-1"
+                    />
+                    <span className="text-muted-foreground">Corner lot</span>
+                  </label>
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={hasAlleyAccess}
+                      onChange={(e) => setHasAlleyAccess(e.target.checked)}
+                      className="h-3.5 w-3.5 rounded border-border text-primary focus:ring-primary focus:ring-offset-0 focus:ring-1"
+                    />
+                    <span className="text-muted-foreground">Alley access</span>
+                  </label>
+                </div>
+                
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <div className="flex items-center gap-1 mb-1">
                       <Label className="text-xs">Width</Label>
-                      <input
-                        type="text"
-                        value={config.units === 'imperial' ? toFeetAndInches(config.lotWidth) : `${toDisplay(config.lotWidth)}m`}
-                        onChange={(e) => {
-                          const val = config.units === 'imperial' 
-                            ? fromFeetAndInches(e.target.value)
-                            : parseFloat(e.target.value.replace('m', '')) / FEET_TO_METERS
-                          if (!isNaN(val) && val > 0) {
-                            updateConfigValue('lotWidth', Math.min(200, Math.max(30, val)))
-                          }
-                        }}
-                        className="text-xs font-mono w-12 px-1 py-0.5 border rounded text-right ml-auto transition-all duration-75 ease-out"
-                      />
+                      <div className="flex items-center gap-1 ml-auto">
+                        {selectedMunicipalityData?.bylaw_data?.min_lot_width_ft && config.lotWidth < selectedMunicipalityData.bylaw_data.min_lot_width_ft && <span className="text-red-600 text-xs">⚠</span>}
+                        <input
+                          type="text"
+                          value={config.units === 'imperial' ? toFeetAndInches(config.lotWidth) : `${toDisplay(config.lotWidth)}m`}
+                          onChange={(e) => {
+                            const val = config.units === 'imperial' 
+                              ? fromFeetAndInches(e.target.value)
+                              : parseFloat(e.target.value.replace('m', '')) / FEET_TO_METERS
+                            if (!isNaN(val) && val > 0) {
+                              // Enforce range: 15-300 feet for lot width
+                              const clampedVal = Math.min(300, Math.max(15, val))
+                              updateConfigValue('lotWidth', clampedVal)
+                            }
+                          }}
+                          className={`text-xs font-mono w-12 px-1 py-0.5 border rounded text-right transition-all duration-75 ease-out ${
+                            selectedMunicipalityData?.bylaw_data?.min_lot_width_ft && config.lotWidth < selectedMunicipalityData.bylaw_data.min_lot_width_ft
+                              ? 'border-red-300 bg-red-50 text-red-700'
+                              : ''
+                          }`}
+                        />
+                      </div>
                     </div>
-                    <input
-                      type="range"
-                      value={config.units === 'metric' ? parseFloat(toDisplay(config.lotWidth).toString()) : config.lotWidth}
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value)
-                        updateConfigValue('lotWidth', config.units === 'metric' ? Math.round(val / FEET_TO_METERS) : val)
-                      }}
-                      max={config.units === 'metric' ? 61 : 200}
-                      min={config.units === 'metric' ? 9 : 30}
-                      step={config.units === 'metric' ? 1.5 : 5}
-                      className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-                    />
+                    <div className="relative">
+                      <input
+                        type="range"
+                        value={config.units === 'metric' ? parseFloat(toDisplay(config.lotWidth).toString()) : config.lotWidth}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value)
+                          const finalVal = config.units === 'metric' ? Math.round(val / FEET_TO_METERS) : val
+                          // Enforce same range as text input: 15-300 feet
+                          const clampedVal = Math.min(300, Math.max(15, finalVal))
+                          updateConfigValue('lotWidth', clampedVal)
+                        }}
+                        max={config.units === 'metric' ? 91 : 300}
+                        min={config.units === 'metric' ? 4.6 : 15}
+                        step={config.units === 'metric' ? 1.5 : 5}
+                        className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                      />
+                      {/* Minimum requirement tick mark */}
+                      {selectedMunicipalityData?.bylaw_data?.min_lot_width_ft && (
+                        <div 
+                          className="absolute top-1/2 w-0.5 h-4 bg-slate-500 transform -translate-y-1/2 -translate-x-0.5 pointer-events-none border border-white/50"
+                          style={{ 
+                            left: `${((config.units === 'metric' 
+                              ? selectedMunicipalityData.bylaw_data.min_lot_width_ft * FEET_TO_METERS 
+                              : selectedMunicipalityData.bylaw_data.min_lot_width_ft) - (config.units === 'metric' ? 4.6 : 15)) 
+                              / ((config.units === 'metric' ? 91 : 300) - (config.units === 'metric' ? 4.6 : 15)) * 100}%` 
+                          }}
+                          title={`Minimum required: ${config.units === 'imperial' 
+                            ? `${selectedMunicipalityData.bylaw_data.min_lot_width_ft}'` 
+                            : `${(selectedMunicipalityData.bylaw_data.min_lot_width_ft * FEET_TO_METERS).toFixed(1)}m`}`}
+                        />
+                      )}
+                    </div>
+                    <div className="flex justify-between items-center text-xs text-muted-foreground mt-1">
+                      <span>{config.units === 'metric' ? '4.6m' : '15ft'}</span>
+                      <span>{config.units === 'metric' ? '91m+' : '300ft+'}</span>
+                    </div>
                   </div>
                   
                   <div>
                     <div className="flex items-center gap-1 mb-1">
                       <Label className="text-xs">Depth</Label>
-                      <input
-                        type="text"
-                        value={config.units === 'imperial' ? toFeetAndInches(config.lotDepth) : `${toDisplay(config.lotDepth)}m`}
-                        onChange={(e) => {
-                          const val = config.units === 'imperial' 
-                            ? fromFeetAndInches(e.target.value)
-                            : parseFloat(e.target.value.replace('m', '')) / FEET_TO_METERS
-                          if (!isNaN(val) && val > 0) {
-                            updateConfigValue('lotDepth', Math.min(200, Math.max(30, val)))
-                          }
-                        }}
-                        className="text-xs font-mono w-12 px-1 py-0.5 border rounded text-right ml-auto transition-all duration-75 ease-out"
-                      />
+                      <div className="flex items-center gap-1 ml-auto">
+                        {selectedMunicipalityData?.bylaw_data?.min_lot_depth_ft && config.lotDepth < selectedMunicipalityData.bylaw_data.min_lot_depth_ft && <span className="text-red-600 text-xs">⚠</span>}
+                        <input
+                          type="text"
+                          value={config.units === 'imperial' ? toFeetAndInches(config.lotDepth) : `${toDisplay(config.lotDepth)}m`}
+                          onChange={(e) => {
+                            const val = config.units === 'imperial' 
+                              ? fromFeetAndInches(e.target.value)
+                              : parseFloat(e.target.value.replace('m', '')) / FEET_TO_METERS
+                            if (!isNaN(val) && val > 0) {
+                              // Enforce range: 50-300 feet for lot depth
+                              const clampedVal = Math.min(300, Math.max(50, val))
+                              updateConfigValue('lotDepth', clampedVal)
+                            }
+                          }}
+                          className={`text-xs font-mono w-12 px-1 py-0.5 border rounded text-right transition-all duration-75 ease-out ${
+                            selectedMunicipalityData?.bylaw_data?.min_lot_depth_ft && config.lotDepth < selectedMunicipalityData.bylaw_data.min_lot_depth_ft
+                              ? 'border-red-300 bg-red-50 text-red-700'
+                              : ''
+                          }`}
+                        />
+                      </div>
                     </div>
-                    <input
-                      type="range"
-                      value={config.units === 'metric' ? parseFloat(toDisplay(config.lotDepth).toString()) : config.lotDepth}
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value)
-                        updateConfigValue('lotDepth', config.units === 'metric' ? Math.round(val / FEET_TO_METERS) : val)
-                      }}
-                      max={config.units === 'metric' ? 61 : 200}
-                      min={config.units === 'metric' ? 9 : 30}
-                      step={config.units === 'metric' ? 1.5 : 5}
-                      className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-                    />
+                    <div className="relative">
+                      <input
+                        type="range"
+                        value={config.units === 'metric' ? parseFloat(toDisplay(config.lotDepth).toString()) : config.lotDepth}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value)
+                          const finalVal = config.units === 'metric' ? Math.round(val / FEET_TO_METERS) : val
+                          // Enforce same range as text input: 50-300 feet
+                          const clampedVal = Math.min(300, Math.max(50, finalVal))
+                          updateConfigValue('lotDepth', clampedVal)
+                        }}
+                        max={config.units === 'metric' ? 91 : 300}
+                        min={config.units === 'metric' ? 15.2 : 50}
+                        step={config.units === 'metric' ? 1.5 : 5}
+                        className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                      />
+                      {/* Minimum requirement tick mark */}
+                      {selectedMunicipalityData?.bylaw_data?.min_lot_depth_ft && (
+                        <div 
+                          className="absolute top-1/2 w-0.5 h-4 bg-slate-500 transform -translate-y-1/2 -translate-x-0.5 pointer-events-none border border-white/50"
+                          style={{ 
+                            left: `${((config.units === 'metric' 
+                              ? selectedMunicipalityData.bylaw_data.min_lot_depth_ft * FEET_TO_METERS 
+                              : selectedMunicipalityData.bylaw_data.min_lot_depth_ft) - (config.units === 'metric' ? 15.2 : 50)) 
+                              / ((config.units === 'metric' ? 91 : 300) - (config.units === 'metric' ? 15.2 : 50)) * 100}%` 
+                          }}
+                          title={`Minimum required: ${config.units === 'imperial' 
+                            ? `${selectedMunicipalityData.bylaw_data.min_lot_depth_ft}'` 
+                            : `${(selectedMunicipalityData.bylaw_data.min_lot_depth_ft * FEET_TO_METERS).toFixed(1)}m`}`}
+                        />
+                      )}
+                    </div>
+                    <div className="flex justify-between items-center text-xs text-muted-foreground mt-1">
+                      <span>{config.units === 'metric' ? '15.2m' : '50ft'}</span>
+                      <span>{config.units === 'metric' ? '91m+' : '300ft+'}</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1253,8 +1617,24 @@ export default function LotConfigurator() {
                       <SelectValue placeholder="Type" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="detached">Detached</SelectItem>
-                      <SelectItem value="attached">Attached</SelectItem>
+                      <SelectItem 
+                        value="detached"
+                        disabled={selectedMunicipalityData?.bylaw_data && !selectedMunicipalityData.bylaw_data.adu_types_allowed?.detached}
+                      >
+                        Detached
+                        {selectedMunicipalityData?.bylaw_data && !selectedMunicipalityData.bylaw_data.adu_types_allowed?.detached && (
+                          <span className="text-muted-foreground ml-1">(Not Permitted)</span>
+                        )}
+                      </SelectItem>
+                      <SelectItem 
+                        value="attached"
+                        disabled={selectedMunicipalityData?.bylaw_data && !selectedMunicipalityData.bylaw_data.adu_types_allowed?.attached}
+                      >
+                        Attached
+                        {selectedMunicipalityData?.bylaw_data && !selectedMunicipalityData.bylaw_data.adu_types_allowed?.attached && (
+                          <span className="text-muted-foreground ml-1">(Not Permitted)</span>
+                        )}
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                   
@@ -1264,7 +1644,15 @@ export default function LotConfigurator() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="1">1 Story</SelectItem>
-                      <SelectItem value="2">2 Story</SelectItem>
+                      <SelectItem 
+                        value="2"
+                        disabled={selectedMunicipalityData?.bylaw_data?.detached_adu_max_stories === 1}
+                      >
+                        2 Story
+                        {selectedMunicipalityData?.bylaw_data?.detached_adu_max_stories === 1 && (
+                          <span className="text-muted-foreground ml-1">(Not Permitted)</span>
+                        )}
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1343,7 +1731,7 @@ export default function LotConfigurator() {
                     <Info className="h-4 w-4 text-muted-foreground" />
                     <span className="text-sm font-medium">Setbacks</span>
                   </div>
-                  {selectedMunicipalityData?.bylaw_data && (
+                  {selectedMunicipalityData?.bylaw_data && (setbacksFromBylaws.front || setbacksFromBylaws.rear || setbacksFromBylaws.side || separationFromBylaws) && (
                     <div className="flex items-center gap-1.5 text-xs text-blue-600 bg-blue-50/50 border border-dashed border-blue-200 px-2.5 py-1.5 rounded-md">
                       <Info className="h-3.5 w-3.5" />
                       <span>Set by municipal bylaws</span>
@@ -1491,7 +1879,12 @@ export default function LotConfigurator() {
                           updateConfigValue('separationFromMain', Math.min(50, Math.max(0, val)))
                         }
                       }}
-                      className="text-xs font-mono w-12 px-1 py-0.5 border rounded text-right ml-auto transition-all duration-75 ease-out"
+                      disabled={separationFromBylaws}
+                      className={`text-xs font-mono w-12 px-1 py-0.5 border rounded text-right ml-auto transition-all duration-75 ease-out ${
+                        separationFromBylaws 
+                          ? 'bg-muted text-muted-foreground cursor-not-allowed' 
+                          : ''
+                      }`}
                     />
                   </div>
                   <input
@@ -1504,7 +1897,12 @@ export default function LotConfigurator() {
                     max={config.units === 'metric' ? 15 : 50}
                     min={0}
                     step={config.units === 'metric' ? 0.3 : 1}
-                    className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                    disabled={separationFromBylaws}
+                    className={`w-full h-2 bg-muted rounded-lg appearance-none ${
+                      separationFromBylaws
+                        ? 'cursor-not-allowed opacity-50'
+                        : 'cursor-pointer accent-primary'
+                    }`}
                   />
                 </div>
               </div>
@@ -1524,7 +1922,7 @@ export default function LotConfigurator() {
         <main className="flex flex-col min-h-0">
 
           {/* Canvas */}
-          <Card className="flex-1 flex flex-col min-h-0 max-h-[calc(100vh-12rem)]">
+          <Card className="flex-1 flex flex-col min-h-0 max-h-full min-w-0 overflow-hidden">
             <CardHeader className="pb-2">
               <div className="flex justify-between items-center">
                 <div>
@@ -1533,20 +1931,25 @@ export default function LotConfigurator() {
                     Property Visualization
                   </CardTitle>
                   <CardDescription className="text-xs">
-                    Drag the ADU to reposition it on your lot
+                    Drag the ADU to reposition it on your lot • Scale: {scale}x
                   </CardDescription>
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="flex-1 flex justify-center items-center bg-muted/30 relative min-h-0 p-4">
+            <CardContent 
+              ref={visualizationContainerRef}
+              className="flex-1 flex justify-center items-center bg-muted/30 relative min-h-0 p-4 overflow-auto"
+            >
               <div
                 data-visualizer="true"
                 className={`relative bg-background border-2 border-border rounded-lg shadow-lg overflow-hidden ${isDragging ? 'cursor-grabbing' : 'cursor-auto'}`}
                 style={{
-                  width: Math.min(700, config.lotWidth * scale) + 'px',
-                  height: Math.min(500, config.lotDepth * scale) + 'px',
+                  width: Math.min(containerDimensions.width - 40, Math.max(200, config.lotWidth * scale)) + 'px',
+                  height: Math.min(containerDimensions.height - 40, Math.max(150, config.lotDepth * scale)) + 'px',
+                  maxWidth: '100%',
+                  maxHeight: '100%',
                   backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 19px, hsl(var(--border)) 19px, hsl(var(--border)) 20px), repeating-linear-gradient(90deg, transparent, transparent 19px, hsl(var(--border)) 19px, hsl(var(--border)) 20px)',
-                  backgroundSize: '20px 20px'
+                  backgroundSize: `${Math.max(5, Math.min(30, 5 * scale))}px ${Math.max(5, Math.min(30, 5 * scale))}px`
                 }}
                 onClick={(e) => {
                   if (e.target === e.currentTarget) {
@@ -1795,7 +2198,12 @@ export default function LotConfigurator() {
                     
                     const updateX = (val: number) => {
                       if (isADU) {
-                        setAduPosition(prev => ({ ...prev, x: Math.min(config.lotWidth - config.aduWidth, Math.max(0, val)) }))
+                        const buildable = getBuildableArea()
+                        const constrainedX = Math.min(
+                          buildable.right - config.aduWidth, 
+                          Math.max(buildable.left, val)
+                        )
+                        setAduPosition(prev => ({ ...prev, x: constrainedX }))
                       } else if (obstacle) {
                         setObstacles(prev => prev.map(obs => 
                           obs.id === obstacle.id ? { ...obs, x: Math.min(config.lotWidth - obs.width, Math.max(0, val)) } : obs
@@ -1805,7 +2213,12 @@ export default function LotConfigurator() {
                     
                     const updateY = (val: number) => {
                       if (isADU) {
-                        setAduPosition(prev => ({ ...prev, y: Math.min(config.lotDepth - config.aduDepth, Math.max(0, val)) }))
+                        const buildable = getBuildableArea()
+                        const constrainedY = Math.min(
+                          buildable.bottom - config.aduDepth, 
+                          Math.max(buildable.top, val)
+                        )
+                        setAduPosition(prev => ({ ...prev, y: constrainedY }))
                       } else if (obstacle) {
                         setObstacles(prev => prev.map(obs => 
                           obs.id === obstacle.id ? { ...obs, y: Math.min(config.lotDepth - obs.depth, Math.max(0, val)) } : obs
@@ -1939,7 +2352,7 @@ export default function LotConfigurator() {
                                   const val = parseFloat(e.target.value)
                                   updateX(config.units === 'metric' ? val / FEET_TO_METERS : val)
                                 }}
-                                max={config.units === 'metric' ? parseFloat(toDisplay(config.lotWidth - currentWidth).toString()) : config.lotWidth - currentWidth}
+                                max={config.units === 'metric' ? parseFloat(toDisplay(getBuildableArea().right - currentWidth).toString()) : getBuildableArea().right - currentWidth}
                                 min={0}
                                 step={config.units === 'metric' ? 0.3 : 1}
                                 className="w-full h-1 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
@@ -1970,7 +2383,7 @@ export default function LotConfigurator() {
                                   const val = parseFloat(e.target.value)
                                   updateY(config.units === 'metric' ? val / FEET_TO_METERS : val)
                                 }}
-                                max={config.units === 'metric' ? parseFloat(toDisplay(config.lotDepth - currentDepth).toString()) : config.lotDepth - currentDepth}
+                                max={config.units === 'metric' ? parseFloat(toDisplay(getBuildableArea().bottom - currentDepth).toString()) : getBuildableArea().bottom - currentDepth}
                                 min={0}
                                 step={config.units === 'metric' ? 0.3 : 1}
                                 className="w-full h-1 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"

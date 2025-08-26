@@ -9,6 +9,8 @@ const globalSearchSchema = z.object({
   limit: z.string().optional().transform(val => val ? parseInt(val, 10) : 100), // Default to 100
   offset: z.string().optional().transform(val => val ? parseInt(val, 10) : 0), // For pagination
   municipalityIds: z.array(z.string().transform(Number)).optional(), // For filtering by municipality
+  categories: z.array(z.string()).optional(), // For filtering by categories
+  aduType: z.string().optional(), // For filtering by ADU type
 })
 
 // GET /api/search/global - Global search across documents, municipalities, and keywords
@@ -19,12 +21,15 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams
     const typesParam = searchParams.getAll('types[]')
     const municipalityIdsParam = searchParams.getAll('municipalityIds[]')
+    const categoriesParam = searchParams.getAll('categories[]')
     const queryParams = {
       q: searchParams.get('q') || '',
       types: typesParam.length > 0 ? typesParam : ['documents', 'municipalities', 'keywords'],
       limit: searchParams.get('limit') || '100', // Default to 100
       offset: searchParams.get('offset') || '0', // For pagination
       municipalityIds: municipalityIdsParam.length > 0 ? municipalityIdsParam : undefined,
+      categories: categoriesParam.length > 0 ? categoriesParam : undefined,
+      aduType: searchParams.get('aduType') || undefined,
     }
     
     const validation = globalSearchSchema.safeParse(queryParams)
@@ -39,7 +44,7 @@ export async function GET(request: NextRequest) {
       )
     }
     
-    const { q: query, types, limit, offset, municipalityIds: rawMunicipalityIds } = validation.data
+    const { q: query, types, limit, offset, municipalityIds: rawMunicipalityIds, categories, aduType } = validation.data
     
     // When no municipalities are selected (empty array), pass null to search all municipalities
     const municipalityIds = rawMunicipalityIds && rawMunicipalityIds.length > 0 ? rawMunicipalityIds : null
@@ -268,7 +273,41 @@ export async function GET(request: NextRequest) {
                 }
               }
 
-              results.documents = optimizedData.map((doc: any) => ({
+              // Filter results by categories and ADU type
+              let filteredData = optimizedData
+              
+              // Filter by categories
+              if (categories && categories.length > 0) {
+                filteredData = filteredData.filter((doc: any) => {
+                  if (!doc.categories) return false
+                  return categories.some(category => {
+                    const score = doc.categories[category]
+                    return typeof score === 'number' && score >= 1
+                  })
+                })
+              }
+              
+              // Filter by ADU type (search in content and title)
+              if (aduType) {
+                const aduTypeKeywords: Record<string, string[]> = {
+                  'secondary-suite': ['secondary suite', 'second suite'],
+                  'garden-suite': ['garden suite', 'garden unit'],
+                  'laneway': ['laneway', 'lane way', 'laneway house'],
+                  'coach-house': ['coach house', 'carriage house']
+                }
+                
+                const keywords = aduTypeKeywords[aduType] || []
+                if (keywords.length > 0) {
+                  filteredData = filteredData.filter((doc: any) => {
+                    const titleAndFilename = `${doc.title} ${doc.filename || ''}`.toLowerCase()
+                    const contentText = doc.content_text ? doc.content_text.toLowerCase().substring(0, 2000) : ''
+                    const searchText = `${titleAndFilename} ${contentText}`
+                    return keywords.some(keyword => searchText.includes(keyword.toLowerCase()))
+                  })
+                }
+              }
+
+              results.documents = filteredData.map((doc: any) => ({
                 ...doc,
                 is_relevant: doc.is_relevant,
                 adu_category_score: doc.categories?.['ADU/ARU Regulations'] || 0,

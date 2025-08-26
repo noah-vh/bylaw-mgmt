@@ -66,7 +66,9 @@ async function fetchGlobalSearch(
   types: ('documents' | 'municipalities' | 'scrapers' | 'keywords')[] = ['documents', 'municipalities'],
   limit = 100,
   offset = 0,
-  municipalityIds: number[] = []
+  municipalityIds: number[] = [],
+  categories: string[] = [],
+  aduType: string = ''
 ): Promise<GlobalSearchResponse> {
   const searchParams = new URLSearchParams()
   searchParams.set('q', query)
@@ -74,12 +76,16 @@ async function fetchGlobalSearch(
   searchParams.set('offset', offset.toString())
   types.forEach(type => searchParams.append('types[]', type))
   municipalityIds.forEach(id => searchParams.append('municipalityIds[]', id.toString()))
+  categories.forEach(category => searchParams.append('categories[]', category))
+  if (aduType) searchParams.set('aduType', aduType)
   
   // Debug logging (can be removed later)
   console.log('=== FETCH GLOBAL SEARCH ===')
   console.log('Search params:', {
     query,
     municipalityIds,
+    categories,
+    aduType,
     limit,
     offset,
     url: `/api/search/global?${searchParams}`
@@ -110,8 +116,8 @@ async function fetchGlobalSearch(
 // Query key factory for global search
 const globalSearchKeys = {
   all: ['global-search'] as const,
-  search: (query: string, types: string[], limit: number, offset: number, municipalityIds: number[]) => 
-    [...globalSearchKeys.all, 'v5', query, types, limit, offset, municipalityIds] as const,
+  search: (query: string, types: string[], limit: number, offset: number, municipalityIds: number[], categories: string[], aduType: string) => 
+    [...globalSearchKeys.all, 'v6', query, types, limit, offset, municipalityIds, categories, aduType] as const,
 }
 
 // Global search hook
@@ -120,17 +126,21 @@ export function useGlobalSearch(
   initialTypes: ('documents' | 'municipalities' | 'scrapers' | 'keywords')[] = ['documents', 'municipalities'],
   initialLimit: number = 100,
   initialOffset: number = 0,
-  initialMunicipalityIds: number[] = []
+  initialMunicipalityIds: number[] = [],
+  initialCategories: string[] = [],
+  initialAduType: string = ''
 ) {
   const [query, setQuery] = useState(initialQuery)
   const [searchTypes, setSearchTypes] = useState(initialTypes)
   const [limit, setLimit] = useState(initialLimit)
   const [offset, setOffset] = useState(initialOffset)
   const [municipalityIds, setMunicipalityIds] = useState(initialMunicipalityIds)
+  const [categories, setCategories] = useState(initialCategories)
+  const [aduType, setAduType] = useState(initialAduType)
 
   const searchQuery = useQuery({
-    queryKey: globalSearchKeys.search(query, searchTypes, limit, offset, municipalityIds),
-    queryFn: () => fetchGlobalSearch(query, searchTypes, limit, offset, municipalityIds),
+    queryKey: globalSearchKeys.search(query, searchTypes, limit, offset, municipalityIds, categories, aduType),
+    queryFn: () => fetchGlobalSearch(query, searchTypes, limit, offset, municipalityIds, categories, aduType),
     enabled: query.length >= 2, // Only search with 2+ characters
     staleTime: 1000 * 60 * 2, // 2 minutes
     refetchOnWindowFocus: false, // Don't refetch on window focus
@@ -158,6 +168,16 @@ export function useGlobalSearch(
     setOffset(0) // Reset to first page when changing filter
   }
   
+  const updateCategories = (newCategories: string[]) => {
+    setCategories(newCategories)
+    setOffset(0) // Reset to first page when changing filter
+  }
+  
+  const updateAduType = (newAduType: string) => {
+    setAduType(newAduType)
+    setOffset(0) // Reset to first page when changing filter
+  }
+  
   const nextPage = () => {
     setOffset(prev => prev + limit)
   }
@@ -178,11 +198,15 @@ export function useGlobalSearch(
     limit,
     offset,
     municipalityIds,
+    categories,
+    aduType,
     search,
     updateTypes,
     updateLimit,
     updateOffset,
     updateMunicipalityIds,
+    updateCategories,
+    updateAduType,
     nextPage,
     prevPage,
     clearSearch,
@@ -208,8 +232,8 @@ export function useGlobalSearch(
 // Simple search hook for quick searches (like in a navbar)
 export function useQuickSearch(query: string, enabled = true) {
   return useQuery({
-    queryKey: globalSearchKeys.search(query, ['documents', 'municipalities'], 5, 0, []),
-    queryFn: () => fetchGlobalSearch(query, ['documents', 'municipalities'], 5),
+    queryKey: globalSearchKeys.search(query, ['documents', 'municipalities'], 5, 0, [], [], ''),
+    queryFn: () => fetchGlobalSearch(query, ['documents', 'municipalities'], 5, 0, [], [], ''),
     enabled: enabled && query.length >= 2,
     staleTime: 1000 * 30
   })

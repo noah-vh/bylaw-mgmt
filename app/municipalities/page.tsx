@@ -69,7 +69,7 @@ import { createMunicipalityId, createDocumentId } from "@/types/database"
 import type { MunicipalityBylawData, MunicipalityBylawDataInput } from "@/lib/municipality-bylaw-types"
 
 export default function MunicipalitiesPage() {
-  const [viewMode, setViewMode] = useState<'grid' | 'table'>('table')
+  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
   const [selectedMunicipalities, setSelectedMunicipalities] = useState<number[]>([])
   const [editingMunicipality, setEditingMunicipality] = useState<Municipality | null>(null)
   const [deletingMunicipality, setDeletingMunicipality] = useState<Municipality | null>(null)
