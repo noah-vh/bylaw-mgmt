@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '../../../../lib/supabase'
 import { z } from 'zod'
+import { expandQuery, getSynonyms } from '../../../../lib/search-synonyms'
 
 // Validation schema for global search
 const globalSearchSchema = z.object({
@@ -44,7 +45,15 @@ export async function GET(request: NextRequest) {
       )
     }
     
-    const { q: query, types, limit, offset, municipalityIds: rawMunicipalityIds, categories, aduType } = validation.data
+    const { q: originalQuery, types, limit, offset, municipalityIds: rawMunicipalityIds, categories, aduType } = validation.data
+    
+    // Expand the query with synonyms for better search results
+    const expandedQuery = expandQuery(originalQuery)
+    console.log('Original query:', originalQuery)
+    console.log('Expanded query:', expandedQuery)
+    
+    // Use expanded query for search operations
+    const query = expandedQuery
     
     // When no municipalities are selected (empty array), pass null to search all municipalities
     const municipalityIds = rawMunicipalityIds && rawMunicipalityIds.length > 0 ? rawMunicipalityIds : null
@@ -68,20 +77,56 @@ export async function GET(request: NextRequest) {
     // Get municipality counts - using fast version with timeout protection
     const municipalityCountsPromise = (async () => {
       try {
-        // ALWAYS get counts for ALL municipalities (don't filter by selected ones)
-        // This way users can see counts for all municipalities even when some are selected
-        const { data: counts, error } = await supabase.rpc('get_search_municipality_counts_fast', {
-          search_query: query,
-          filter_municipality_ids: null  // Always pass null to get all municipality counts
-        });
+        let counts: any[] = [];
         
-        if (error) {
-          console.error('Municipality counts error:', error);
-          results.municipalityCounts = [];
+        // If using synonym expansion, calculate counts from actual search results
+        if (query !== originalQuery && query.includes('OR')) {
+          console.log('Using synonym approach for municipality counts...')
+          
+          // Get counts by running the same synonym search approach
+          const synonymTerms = query.replace(/[()]/g, '').split(' OR ').map(term => term.trim())
+          const municipalityCounts = new Map()
+          
+          for (const term of synonymTerms) {
+            try {
+              const { data: termCounts } = await supabase.rpc('get_search_municipality_counts_fast', {
+                search_query: term,
+                filter_municipality_ids: null
+              });
+              
+              if (termCounts) {
+                termCounts.forEach((count: any) => {
+                  const existing = municipalityCounts.get(count.municipality_id) || 0
+                  // Add counts but don't double-count the same documents
+                  municipalityCounts.set(count.municipality_id, Math.max(existing, count.document_count))
+                })
+              }
+            } catch (error) {
+              console.error(`Error getting counts for term "${term}":`, error)
+            }
+          }
+          
+          // Convert Map back to array
+          counts = Array.from(municipalityCounts.entries()).map(([municipality_id, document_count]) => ({
+            municipality_id,
+            document_count
+          }))
+          
         } else {
-          // Return all counts - let the frontend handle display
-          results.municipalityCounts = counts || [];
+          // Standard approach for non-synonym queries
+          const { data, error } = await supabase.rpc('get_search_municipality_counts_fast', {
+            search_query: query,
+            filter_municipality_ids: null  // Always pass null to get all municipality counts
+          });
+          
+          if (error) {
+            console.error('Municipality counts error:', error);
+          } else {
+            counts = data || [];
+          }
         }
+        
+        results.municipalityCounts = counts;
       } catch (error) {
         console.error('Municipality counts error:', error);
         results.municipalityCounts = [];
@@ -104,12 +149,55 @@ export async function GET(request: NextRequest) {
             municipalityIds_length: municipalityIds ? municipalityIds.length : 'null (all municipalities)'
           })
           
-          const { data: optimizedData, error: optimizedError } = await supabase.rpc('search_documents_optimized', {
-            search_query: query,
-            max_results: limit,
-            result_offset: offset,
-            filter_municipality_ids: municipalityIds
-          })
+          // If the query contains synonyms (expanded), try a different approach
+          let optimizedData: any[] = []
+          let optimizedError: any = null
+          
+          if (query !== originalQuery && query.includes('OR')) {
+            // For synonym queries, search each term individually and combine results
+            console.log('Using synonym search approach...')
+            const synonymTerms = query.replace(/[()]/g, '').split(' OR ').map(term => term.trim())
+            const allResults = new Map() // Use Map to deduplicate by document ID
+            
+            for (const term of synonymTerms) {
+              try {
+                const { data: termData } = await supabase.rpc('search_documents_optimized', {
+                  search_query: term,
+                  max_results: Math.ceil(limit / synonymTerms.length * 2), // Get more per term
+                  result_offset: 0,
+                  filter_municipality_ids: municipalityIds
+                })
+                
+                if (termData) {
+                  termData.forEach((doc: any) => {
+                    allResults.set(doc.id, doc) // Deduplicate by ID
+                  })
+                }
+              } catch (error) {
+                console.error(`Error searching for term "${term}":`, error)
+              }
+            }
+            
+            optimizedData = Array.from(allResults.values())
+              .sort((a, b) => {
+                // Sort by relevance, then by date
+                if (a.is_relevant && !b.is_relevant) return -1
+                if (!a.is_relevant && b.is_relevant) return 1
+                return new Date(b.date_found).getTime() - new Date(a.date_found).getTime()
+              })
+              .slice(offset, offset + limit) // Apply pagination
+              
+          } else {
+            // Standard search for non-synonym queries
+            const { data, error } = await supabase.rpc('search_documents_optimized', {
+              search_query: query,
+              max_results: limit,
+              result_offset: offset,
+              filter_municipality_ids: municipalityIds
+            })
+            optimizedData = data
+            optimizedError = error
+          }
           
           if (optimizedError) {
             console.error('Search error:', optimizedError)
@@ -234,16 +322,38 @@ export async function GET(request: NextRequest) {
                 if (contentData) {
                   contentData.forEach(doc => {
                     if (doc.content_text) {
-                      const searchTerms = query.toLowerCase().split(' ').filter(Boolean)
-                      const content = doc.content_text.toLowerCase()
+                      // Get all terms to highlight: original terms + their synonyms
+                      const originalTerms = originalQuery.toLowerCase().split(' ').filter(Boolean)
+                      const allTermsToHighlight = new Set(originalTerms)
                       
+                      // Add synonyms for each original term
+                      originalTerms.forEach(term => {
+                        const cleanTerm = term.replace(/[^\w\s'-]/g, '')
+                        if (cleanTerm) {
+                          const synonyms = getSynonyms(cleanTerm)
+                          synonyms.forEach(synonym => {
+                            // Only add single-word synonyms to avoid complex highlighting
+                            if (!synonym.includes(' ') && synonym.length > 2) {
+                              allTermsToHighlight.add(synonym.toLowerCase())
+                            }
+                          })
+                        }
+                      })
+                      
+                      const content = doc.content_text.toLowerCase()
+                      const termsArray = Array.from(allTermsToHighlight)
+                      
+                      // Find the best snippet location based on any matching term
                       let snippetStart = -1
-                      for (const term of searchTerms) {
+                      let foundTerm = ''
+                      
+                      for (const term of termsArray) {
                         if (term.length > 0) {
                           const index = content.indexOf(term)
                           if (index !== -1) {
                             if (snippetStart === -1 || index < snippetStart) {
                               snippetStart = index
+                              foundTerm = term
                             }
                           }
                         }
@@ -256,12 +366,13 @@ export async function GET(request: NextRequest) {
                         if (start > 0) snippet = '...' + snippet
                         if (end < doc.content_text.length) snippet = snippet + '...'
                         
-                        searchTerms.forEach(term => {
+                        // Highlight all matching terms in the snippet
+                        termsArray.forEach(term => {
                           if (term.length > 0) {
                             const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
                             snippet = snippet.replace(
                               new RegExp(`(${escapedTerm})`, 'gi'),
-                              '<mark class="bg-yellow-200 dark:bg-yellow-300 text-black dark:text-black font-medium px-1 py-0.5 rounded shadow-sm">$1</mark>'
+                              '<mark class="bg-yellow-100 dark:bg-yellow-100/20 text-yellow-800 dark:text-yellow-200 font-medium px-1 py-0.5 rounded">$1</mark>'
                             )
                           }
                         })
@@ -350,7 +461,7 @@ export async function GET(request: NextRequest) {
               status,
               pdf_documents(count)
             `)
-            .ilike('name', `%${query}%`)
+            .ilike('name', `%${originalQuery}%`)  // Use original query for municipality names
             .limit(limit)
           
           if (!error && data) {
@@ -393,7 +504,8 @@ export async function GET(request: NextRequest) {
     // No need for fallback logic anymore
 
     const response = {
-      query,
+      query: originalQuery, // Return original query to frontend
+      expandedQuery, // Also include expanded query for debugging
       results,
       meta: {
         duration: Date.now() - startTime,
@@ -404,7 +516,8 @@ export async function GET(request: NextRequest) {
     }
 
     console.log('Final API response summary:', {
-      query,
+      originalQuery,
+      expandedQuery,
       documentsReturned: results.documents.length,
       municipalitiesReturned: results.municipalities.length,
       totalResults: response.meta.total,
