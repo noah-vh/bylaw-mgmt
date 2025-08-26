@@ -2275,7 +2275,7 @@ export default function LotConfigurator() {
           const detailColor = detail.type === 'setback' ? [220, 20, 60] : [255, 140, 0]
           pdf.setTextColor(detailColor[0], detailColor[1], detailColor[2])
           pdf.text(`• ${detail.message}`, 30, yPosition)
-          if (detail.requirement) {
+          if ('requirement' in detail && detail.requirement) {
             yPosition += 6
             pdf.setTextColor(85, 85, 85)
             pdf.text(`  Requirement: ${detail.requirement}`, 35, yPosition)
