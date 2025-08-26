@@ -125,15 +125,17 @@ interface ReportModalProps {
   obstacles: Obstacle[];
   bylawValidation: BylawValidationResult;
   selectedMunicipalityData: MunicipalityWithBylawData | null;
-  canvasRef: React.RefObject<HTMLCanvasElement>;
-  visualizationContainerRef: React.RefObject<HTMLDivElement>;
+  canvasRef: React.RefObject<HTMLCanvasElement | null>;
+  visualizationContainerRef: React.RefObject<HTMLDivElement | null>;
   aduPosition: { x: number; y: number };
   scale: number;
   containerDimensions: { width: number; height: number };
+  isCornerLot: boolean;
+  hasAlleyAccess: boolean;
   onClose: () => void;
 }
 
-function ReportModal({ config, obstacles, bylawValidation, selectedMunicipalityData, canvasRef, visualizationContainerRef, aduPosition, scale, containerDimensions, onClose }: ReportModalProps) {
+function ReportModal({ config, obstacles, bylawValidation, selectedMunicipalityData, canvasRef, visualizationContainerRef, aduPosition, scale, containerDimensions, isCornerLot, hasAlleyAccess, onClose }: ReportModalProps) {
   const generateDetailedReport = () => {
     const municipality = selectedMunicipalityData?.name || 'Unknown Municipality'
     
@@ -163,14 +165,17 @@ function ReportModal({ config, obstacles, bylawValidation, selectedMunicipalityD
       mainBuilding: {
         size: `${config.mainBuildingWidth}' × ${config.mainBuildingDepth}'`,
         area: `${mainBuildingArea.toLocaleString()} sq ft`,
-        position: `${config.mainBuildingY}' from front, ${config.mainBuildingX}' from west side`,
+        position: (() => {
+          const mainBuilding = obstacles.find(o => o.type === 'residence')
+          return mainBuilding ? `${mainBuilding.y}' from front, ${mainBuilding.x}' from west side` : 'Position not set'
+        })(),
       },
       adu: {
         type: config.aduType || 'detached',
         size: `${config.aduWidth}' × ${config.aduDepth}'`,
         area: `${aduArea.toLocaleString()} sq ft`,
         stories: config.aduStories || 1,
-        position: `${config.aduPosition?.y || 0}' from front, ${config.aduPosition?.x || 0}' from west side`,
+        position: `${aduPosition.y}' from front, ${aduPosition.x}' from west side`,
         distanceFromMain: '15 ft', // Approximate
       },
       setbacks: {
@@ -185,7 +190,7 @@ function ReportModal({ config, obstacles, bylawValidation, selectedMunicipalityD
         details: [...bylawValidation.violations, ...bylawValidation.warnings].map(item => ({
           type: item.type,
           message: item.message,
-          requirement: item.details || item.requirement
+          requirement: 'details' in item ? item.details : ('requirement' in item ? item.requirement : 'No details available')
         }))
       },
       calculations: {
@@ -196,7 +201,7 @@ function ReportModal({ config, obstacles, bylawValidation, selectedMunicipalityD
       },
       siteFeatures: obstacles.map(obstacle => ({
         type: obstacle.type,
-        name: obstacle.name || obstacle.type,
+        name: `${obstacle.type} feature`,
         position: `${obstacle.x}', ${obstacle.y}' from front`,
         size: `${obstacle.width}' × ${obstacle.depth}'`
       }))
@@ -486,9 +491,9 @@ function ReportModal({ config, obstacles, bylawValidation, selectedMunicipalityD
               <div><span className="font-bold">Buildable Area:</span> {report.property.buildableArea}</div>
               <div><span className="font-bold">Frontage:</span> {report.property.frontage}</div>
               <div><span className="font-bold">Depth:</span> {report.property.depth}</div>
-              <div><span className="font-bold">Corner Lot:</span> {config.cornerLot ? 'Yes' : 'No'}</div>
-              <div><span className="font-bold">Alley Access:</span> {config.alleyAccess ? 'Yes' : 'No'}</div>
-              <div><span className="font-bold">Zoning:</span> {selectedMunicipalityData?.zoning || 'Not specified'}</div>
+              <div><span className="font-bold">Corner Lot:</span> {isCornerLot ? 'Yes' : 'No'}</div>
+              <div><span className="font-bold">Alley Access:</span> {hasAlleyAccess ? 'Yes' : 'No'}</div>
+              <div><span className="font-bold">Zoning:</span> Not specified</div>
             </div>
           </section>
 
@@ -498,8 +503,11 @@ function ReportModal({ config, obstacles, bylawValidation, selectedMunicipalityD
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div><span className="font-bold">Dimensions:</span> {config.mainBuildingWidth}' × {config.mainBuildingDepth}'</div>
               <div><span className="font-bold">Floor Area:</span> {(config.mainBuildingWidth * config.mainBuildingDepth).toLocaleString()} sq ft</div>
-              <div><span className="font-bold">Position:</span> {config.mainBuildingY}' from front, {config.mainBuildingX}' from west side</div>
-              <div><span className="font-bold">Stories:</span> {config.mainBuildingStories || 2}</div>
+              <div><span className="font-bold">Position:</span> {(() => {
+                const mainBuilding = obstacles.find(o => o.type === 'residence')
+                return mainBuilding ? `${mainBuilding.y}' from front, ${mainBuilding.x}' from west side` : 'Position not set'
+              })()}</div>
+              <div><span className="font-bold">Stories:</span> 2</div>
             </div>
           </section>
 
@@ -512,7 +520,12 @@ function ReportModal({ config, obstacles, bylawValidation, selectedMunicipalityD
               <div><span className="font-bold">Floor Area:</span> {(config.aduWidth * config.aduDepth).toLocaleString()} sq ft</div>
               <div><span className="font-bold">Stories:</span> {config.aduStories || 1}</div>
               <div><span className="font-bold">Position on Lot:</span> {aduPosition.y}' from front, {aduPosition.x}' from west side</div>
-              <div><span className="font-bold">Distance from Main:</span> {Math.sqrt(Math.pow(aduPosition.x - config.mainBuildingX, 2) + Math.pow(aduPosition.y - config.mainBuildingY, 2)).toFixed(1)}' (calculated)</div>
+              <div><span className="font-bold">Distance from Main:</span> {(() => {
+                const mainBuilding = obstacles.find(o => o.type === 'residence')
+                if (!mainBuilding) return 'Main building position not set'
+                const distance = Math.sqrt(Math.pow(aduPosition.x - mainBuilding.x, 2) + Math.pow(aduPosition.y - mainBuilding.y, 2))
+                return `${distance.toFixed(1)}' (calculated)`
+              })()}</div>
             </div>
           </section>
 
@@ -527,7 +540,7 @@ function ReportModal({ config, obstacles, bylawValidation, selectedMunicipalityD
                 <div><span className="font-bold">Rear Setback (w/ alley):</span> {selectedMunicipalityData.bylaw_data.rear_setback_with_alley_ft ? `${selectedMunicipalityData.bylaw_data.rear_setback_with_alley_ft}'` : 'Same as standard'}</div>
                 <div><span className="font-bold">Side Setback (interior):</span> {selectedMunicipalityData.bylaw_data.side_setback_interior_ft ? `${selectedMunicipalityData.bylaw_data.side_setback_interior_ft}'` : 'Not specified'}</div>
                 <div><span className="font-bold">Side Setback (corner st.):</span> {selectedMunicipalityData.bylaw_data.side_setback_corner_street_ft ? `${selectedMunicipalityData.bylaw_data.side_setback_corner_street_ft}'` : 'Same as interior'}</div>
-                <div><span className="font-bold">Max ADU Size:</span> {selectedMunicipalityData.bylaw_data.max_adu_size_sqft ? `${selectedMunicipalityData.bylaw_data.max_adu_size_sqft} sq ft` : 'Not specified'}</div>
+                <div><span className="font-bold">Max ADU Size:</span> {selectedMunicipalityData.bylaw_data.detached_adu_max_size_sqft ? `${selectedMunicipalityData.bylaw_data.detached_adu_max_size_sqft} sq ft` : 'Not specified'}</div>
                 <div><span className="font-bold">Max Lot Coverage:</span> {selectedMunicipalityData.bylaw_data.max_lot_coverage_percent ? `${selectedMunicipalityData.bylaw_data.max_lot_coverage_percent}%` : 'Not specified'}</div>
                 <div className="col-span-2"><span className="font-bold">Permitted ADU Types:</span> {
                   selectedMunicipalityData.bylaw_data.adu_types_allowed 
@@ -569,7 +582,7 @@ function ReportModal({ config, obstacles, bylawValidation, selectedMunicipalityD
                 {obstacles.map((feature, index) => (
                   <div key={feature.id} className="border-l-4 border-blue-500 pl-4">
                     <div className="font-bold">
-                      {index + 1}. {feature.type.charAt(0).toUpperCase() + feature.type.slice(1)}: {feature.name || `${feature.type} ${index + 1}`}
+                      {index + 1}. {feature.type.charAt(0).toUpperCase() + feature.type.slice(1)}: {`${feature.type} ${index + 1}`}
                     </div>
                     <div className="text-gray-600">Position: {feature.x}', {feature.y}' from southwest corner</div>
                     <div className="text-gray-600">Size: {feature.width}' × {feature.depth}'</div>
@@ -606,11 +619,11 @@ function ReportModal({ config, obstacles, bylawValidation, selectedMunicipalityD
                       <div className="text-red-600">
                         • {violation.message}
                       </div>
-                      {violation.details && (
+                      {('details' in violation && violation.details) ? (
                         <div className="text-gray-600 text-sm ml-4">
-                          Details: {violation.details}
+                          Details: {String(violation.details)}
                         </div>
-                      )}
+                      ) : null}
                     </div>
                   ))}
                   {bylawValidation.warnings.map((warning, idx) => (
@@ -618,11 +631,11 @@ function ReportModal({ config, obstacles, bylawValidation, selectedMunicipalityD
                       <div className="text-orange-500">
                         ⚠ {warning.message}
                       </div>
-                      {warning.details && (
+                      {('details' in warning && warning.details) ? (
                         <div className="text-gray-600 text-sm ml-4">
-                          Details: {warning.details}
+                          Details: {String(warning.details)}
                         </div>
-                      )}
+                      ) : null}
                     </div>
                   ))}
                 </div>
@@ -1790,9 +1803,9 @@ export default function LotConfigurator() {
       },
       siteFeatures: obstacles.map(obstacle => ({
         type: obstacle.type,
-        name: obstacle.name || `${obstacle.type.charAt(0).toUpperCase() + obstacle.type.slice(1)}`,
+        name: `${obstacle.type.charAt(0).toUpperCase() + obstacle.type.slice(1)}`,
         position: `${toDisplay(obstacle.x)}, ${toDisplay(obstacle.y)} ${getUnitLabel()}`,
-        size: obstacle.width && obstacle.height ? `${toDisplay(obstacle.width)} × ${toDisplay(obstacle.height)} ${getUnitLabel()}` : 'Point feature'
+        size: obstacle.width && obstacle.depth ? `${toDisplay(obstacle.width)} × ${toDisplay(obstacle.depth)} ${getUnitLabel()}` : 'Point feature'
       })),
       setbacks: {
         front: `${toDisplay(config.frontSetback)} ${getUnitLabel()} ${setbacksFromBylaws.front ? '(from bylaws)' : '(manual)'}`,
@@ -2163,9 +2176,14 @@ export default function LotConfigurator() {
           ['Rear Setback (w/ alley):', bylawData.rear_setback_with_alley_ft ? `${bylawData.rear_setback_with_alley_ft}'` : 'Same as standard'],
           ['Side Setback (interior):', bylawData.side_setback_interior_ft ? `${bylawData.side_setback_interior_ft}'` : 'Not specified'],
           ['Side Setback (corner st.):', bylawData.side_setback_corner_street_ft ? `${bylawData.side_setback_corner_street_ft}'` : 'Same as interior'],
-          ['Max ADU Size:', bylawData.max_adu_size_sqft ? `${bylawData.max_adu_size_sqft} sq ft` : 'Not specified'],
+          ['Max ADU Size:', bylawData.detached_adu_max_size_sqft ? `${bylawData.detached_adu_max_size_sqft} sq ft` : 'Not specified'],
           ['Max Lot Coverage:', bylawData.max_lot_coverage_percent ? `${bylawData.max_lot_coverage_percent}%` : 'Not specified'],
-          ['Permitted ADU Types:', bylawData.adu_types_allowed || 'Not specified']
+          ['Permitted ADU Types:', bylawData.adu_types_allowed 
+            ? Object.entries(bylawData.adu_types_allowed)
+                .filter(([_, allowed]) => allowed)
+                .map(([type, _]) => type.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()))
+                .join(', ') || 'None specified'
+            : 'Not specified']
         ]
         
         bylawRequirements.forEach(([label, value]) => {
@@ -3077,10 +3095,6 @@ export default function LotConfigurator() {
                   <FileText className="mr-2 h-4 w-4" />
                   Generate Report
                 </Button>
-                <Button onClick={exportConfiguration} variant="outline" className="w-full h-9">
-                  <Download className="mr-2 h-4 w-4" />
-                  Export PDF
-                </Button>
               </div>
             </CardContent>
           </Card>
@@ -3620,12 +3634,14 @@ export default function LotConfigurator() {
           config={config}
           obstacles={obstacles}
           bylawValidation={bylawValidation}
-          selectedMunicipalityData={selectedMunicipalityData}
+          selectedMunicipalityData={selectedMunicipalityData || null}
           canvasRef={canvasRef}
           visualizationContainerRef={visualizationContainerRef}
           aduPosition={aduPosition}
           scale={scale}
           containerDimensions={containerDimensions}
+          isCornerLot={isCornerLot}
+          hasAlleyAccess={hasAlleyAccess}
           onClose={() => setShowReportModal(false)}
         />
       )}
