@@ -329,10 +329,10 @@ function ReportModal({ config, obstacles, bylawValidation, selectedMunicipalityD
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-        <div className="bg-white rounded-lg shadow-xl max-w-5xl w-full max-h-[90vh] flex flex-col">
+        <div className="bg-card rounded-lg shadow-xl max-w-5xl w-full max-h-[90vh] flex flex-col">
           {/* Modal Header */}
-          <div className="flex items-center justify-between p-4 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900">ADU Configuration Report</h3>
+          <div className="flex items-center justify-between p-4 border-b border-border">
+            <h3 className="text-lg font-semibold text-foreground">ADU Configuration Report</h3>
             <div className="flex items-center space-x-2">
               <Button onClick={handlePrint} variant="outline" size="sm">
                 Download PDF
@@ -345,14 +345,14 @@ function ReportModal({ config, obstacles, bylawValidation, selectedMunicipalityD
 
           {/* Document Content */}
           <div className="flex-1 overflow-y-auto p-6">
-            <div id="modal-report-content" className="space-y-6">
+            <div id="modal-report-content" className="space-y-6 print:bg-white print:text-black">
           {/* Title Section */}
-          <div className="text-center border-b border-gray-200 pb-6">
-            <h1 className="text-2xl font-bold text-gray-800 mb-2">
+          <div className="text-center border-b border-border pb-6 print:border-gray-200">
+            <h1 className="text-2xl font-bold text-foreground mb-2 print:text-gray-800">
               ACCESSORY DWELLING UNIT<br/>
               LOT CONFIGURATION REPORT
             </h1>
-            <div className="text-lg text-gray-600 space-y-1">
+            <div className="text-lg text-muted-foreground space-y-1 print:text-gray-600">
               <p>Municipality: {report.municipality}</p>
               <p>Generated: {new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
             </div>
@@ -360,13 +360,13 @@ function ReportModal({ config, obstacles, bylawValidation, selectedMunicipalityD
 
           {/* Executive Summary */}
           <section>
-            <h2 className="text-lg font-bold text-black mb-3">EXECUTIVE SUMMARY</h2>
+            <h2 className="text-lg font-bold text-foreground mb-3 print:text-black">EXECUTIVE SUMMARY</h2>
             
             <div className={`${statusColor} text-white p-3 rounded mb-3`}>
               <p className="font-bold text-sm">{statusText}</p>
             </div>
 
-            <div className="space-y-1 text-gray-700 text-sm">
+            <div className="space-y-1 text-foreground text-sm print:text-gray-700">
               <p>• ADU Type: {report.adu.type.toUpperCase()}</p>
               <p>• Floor Area: {report.adu.area}</p>  
               <p>• Lot Coverage: {report.calculations.lotCoverage}</p>
@@ -376,8 +376,8 @@ function ReportModal({ config, obstacles, bylawValidation, selectedMunicipalityD
 
           {/* Site Layout Visualization */}
           <section>
-            <h2 className="text-lg font-bold text-black mb-3">SITE LAYOUT VISUALIZATION</h2>
-            <div className="border border-gray-300 bg-gray-50 p-3 rounded">
+            <h2 className="text-lg font-bold text-foreground mb-3 print:text-black">SITE LAYOUT VISUALIZATION</h2>
+            <div className="border border-border bg-muted p-3 rounded print:border-gray-300 print:bg-gray-50">
               <div className="flex justify-center">
                 {(() => {
                   // Calculate scale to fit lot in modal container
@@ -484,8 +484,8 @@ function ReportModal({ config, obstacles, bylawValidation, selectedMunicipalityD
 
           {/* Property Information */}
           <section>
-            <h2 className="text-lg font-bold text-black mb-3">PROPERTY INFORMATION</h2>
-            <div className="grid grid-cols-2 gap-3 text-sm">
+            <h2 className="text-lg font-bold text-foreground mb-3 print:text-black">PROPERTY INFORMATION</h2>
+            <div className="grid grid-cols-2 gap-3 text-sm text-foreground print:text-gray-700">
               <div><span className="font-bold">Lot Dimensions:</span> {report.property.lotSize}</div>
               <div><span className="font-bold">Total Lot Area:</span> {report.property.lotArea}</div>
               <div><span className="font-bold">Buildable Area:</span> {report.property.buildableArea}</div>
@@ -499,8 +499,8 @@ function ReportModal({ config, obstacles, bylawValidation, selectedMunicipalityD
 
           {/* Main Building */}
           <section>
-            <h2 className="text-lg font-bold text-black mb-3">MAIN BUILDING</h2>
-            <div className="grid grid-cols-2 gap-3 text-sm">
+            <h2 className="text-lg font-bold text-foreground mb-3 print:text-black">MAIN BUILDING</h2>
+            <div className="grid grid-cols-2 gap-3 text-sm text-foreground print:text-gray-700">
               <div><span className="font-bold">Dimensions:</span> {config.mainBuildingWidth}' × {config.mainBuildingDepth}'</div>
               <div><span className="font-bold">Floor Area:</span> {(config.mainBuildingWidth * config.mainBuildingDepth).toLocaleString()} sq ft</div>
               <div><span className="font-bold">Position:</span> {(() => {
@@ -513,8 +513,8 @@ function ReportModal({ config, obstacles, bylawValidation, selectedMunicipalityD
 
           {/* ADU Configuration */}
           <section>
-            <h2 className="text-lg font-bold text-black mb-3">ADU CONFIGURATION</h2>
-            <div className="grid grid-cols-2 gap-3 text-sm">
+            <h2 className="text-lg font-bold text-foreground mb-3 print:text-black">ADU CONFIGURATION</h2>
+            <div className="grid grid-cols-2 gap-3 text-sm text-foreground print:text-gray-700">
               <div><span className="font-bold">Type:</span> {config.aduType?.charAt(0).toUpperCase()}{config.aduType?.slice(1)} ADU</div>
               <div><span className="font-bold">Dimensions:</span> {config.aduWidth}' × {config.aduDepth}'</div>
               <div><span className="font-bold">Floor Area:</span> {(config.aduWidth * config.aduDepth).toLocaleString()} sq ft</div>
@@ -532,8 +532,8 @@ function ReportModal({ config, obstacles, bylawValidation, selectedMunicipalityD
           {/* Municipal Bylaw Requirements */}
           {selectedMunicipalityData?.bylaw_data && (
             <section>
-              <h2 className="text-lg font-bold text-black mb-3">MUNICIPAL BYLAW REQUIREMENTS</h2>
-              <div className="grid grid-cols-2 gap-3 text-sm">
+              <h2 className="text-lg font-bold text-foreground mb-3 print:text-black">MUNICIPAL BYLAW REQUIREMENTS</h2>
+              <div className="grid grid-cols-2 gap-3 text-sm text-foreground print:text-gray-700">
                 <div><span className="font-bold">Minimum Lot Width:</span> {selectedMunicipalityData.bylaw_data.min_lot_width_ft ? `${selectedMunicipalityData.bylaw_data.min_lot_width_ft}'` : 'Not specified'}</div>
                 <div><span className="font-bold">Front Setback (min):</span> {selectedMunicipalityData.bylaw_data.front_setback_min_ft ? `${selectedMunicipalityData.bylaw_data.front_setback_min_ft}'` : 'Not specified'}</div>
                 <div><span className="font-bold">Rear Setback (standard):</span> {selectedMunicipalityData.bylaw_data.rear_setback_standard_ft ? `${selectedMunicipalityData.bylaw_data.rear_setback_standard_ft}'` : 'Not specified'}</div>
@@ -556,8 +556,8 @@ function ReportModal({ config, obstacles, bylawValidation, selectedMunicipalityD
 
           {/* Setback Analysis */}
           <section>
-            <h2 className="text-lg font-bold text-black mb-3">SETBACK ANALYSIS</h2>
-            <div className="space-y-2 text-sm">
+            <h2 className="text-lg font-bold text-foreground mb-3 print:text-black">SETBACK ANALYSIS</h2>
+            <div className="space-y-2 text-sm text-foreground print:text-gray-700">
               <div><span className="font-bold">Current Front Setback:</span> {config.frontSetback}' (Required: {selectedMunicipalityData?.bylaw_data?.front_setback_min_ft || config.frontSetback}')</div>
               <div><span className="font-bold">Current Rear Setback:</span> {config.rearSetback}' (Required: {selectedMunicipalityData?.bylaw_data?.rear_setback_standard_ft || config.rearSetback}')</div>
               <div><span className="font-bold">Current Side Setback:</span> {config.sideSetback}' (Required: {selectedMunicipalityData?.bylaw_data?.side_setback_interior_ft || config.sideSetback}')</div>
@@ -577,8 +577,8 @@ function ReportModal({ config, obstacles, bylawValidation, selectedMunicipalityD
           {/* Site Features */}
           {obstacles.length > 0 && (
             <section>
-              <h2 className="text-lg font-bold text-black mb-3">SITE FEATURES</h2>
-              <div className="space-y-3 text-sm">
+              <h2 className="text-lg font-bold text-foreground mb-3 print:text-black">SITE FEATURES</h2>
+              <div className="space-y-3 text-sm text-foreground print:text-gray-700">
                 {obstacles.map((feature, index) => (
                   <div key={feature.id} className="border-l-4 border-blue-500 pl-4">
                     <div className="font-bold">
@@ -595,17 +595,17 @@ function ReportModal({ config, obstacles, bylawValidation, selectedMunicipalityD
 
           {/* Compliance Analysis */}
           <section>
-            <h2 className="text-lg font-bold text-black mb-3">COMPLIANCE ANALYSIS</h2>
+            <h2 className="text-lg font-bold text-foreground mb-3 print:text-black">COMPLIANCE ANALYSIS</h2>
             
-            <div className={`text-lg font-bold mb-4 ${bylawValidation.isValid ? 'text-green-600' : 'text-red-600'}`}>
+            <div className={`text-lg font-bold mb-4 ${bylawValidation.isValid ? 'text-green-600' : 'text-destructive'} print:text-black`}>
               {bylawValidation.isValid ? '✓ CONFIGURATION COMPLIANT' : '✗ COMPLIANCE ISSUES FOUND'}
             </div>
 
-            <div className="space-y-2 text-sm mb-4">
-              <div className={`${bylawValidation.violations.length > 0 ? 'text-red-600' : 'text-green-600'}`}>
+            <div className="space-y-2 text-sm mb-4 text-foreground print:text-gray-700">
+              <div className={`${bylawValidation.violations.length > 0 ? 'text-destructive' : 'text-green-600'} print:text-black`}>
                 Total Violations: {bylawValidation.violations.length}
               </div>
-              <div className={`${bylawValidation.warnings.length > 0 ? 'text-orange-500' : 'text-green-600'}`}>
+              <div className={`${bylawValidation.warnings.length > 0 ? 'text-orange-500' : 'text-green-600'} print:text-black`}>
                 Warnings: {bylawValidation.warnings.length}
               </div>
             </div>
@@ -645,8 +645,8 @@ function ReportModal({ config, obstacles, bylawValidation, selectedMunicipalityD
 
           {/* Technical Calculations */}
           <section>
-            <h2 className="text-lg font-bold text-black mb-3">TECHNICAL CALCULATIONS</h2>
-            <div className="grid grid-cols-2 gap-3 text-sm">
+            <h2 className="text-lg font-bold text-foreground mb-3 print:text-black">TECHNICAL CALCULATIONS</h2>
+            <div className="grid grid-cols-2 gap-3 text-sm text-foreground print:text-gray-700">
               <div><span className="font-bold">Total Lot Area:</span> {(config.lotWidth * config.lotDepth).toLocaleString()} sq ft</div>
               <div><span className="font-bold">Main Building Footprint:</span> {(config.mainBuildingWidth * config.mainBuildingDepth).toLocaleString()} sq ft</div>
               <div><span className="font-bold">ADU Footprint:</span> {(config.aduWidth * config.aduDepth).toLocaleString()} sq ft</div>
