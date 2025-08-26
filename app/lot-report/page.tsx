@@ -1,6 +1,5 @@
 'use client'
 
-import { useSearchParams } from 'next/navigation'
 import { useEffect, useState } from 'react'
 
 interface ReportData {
@@ -70,7 +69,6 @@ interface ReportData {
 }
 
 export default function LotReport() {
-  const searchParams = useSearchParams()
   const [reportData, setReportData] = useState<ReportData | null>(null)
   const [loading, setLoading] = useState(true)
 

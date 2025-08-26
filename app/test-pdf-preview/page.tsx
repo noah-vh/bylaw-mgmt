@@ -86,7 +86,9 @@ const mockReport = {
     separationDistance: "15 ft (from bylaws)",
     buildableAreaUsed: "42.7% (1,920 sf / 4,500 sf)",
     floorAreaRatio: "0.32",
-    permeableArea: "68% (4,080 sf)"
+    permeableArea: "68% (4,080 sf)",
+    totalBuildingFootprint: "1,920 sq ft",
+    remainingYardSpace: "4,080 sq ft"
   },
   siteFeatures: [
     {
