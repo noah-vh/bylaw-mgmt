@@ -64,37 +64,103 @@ interface ADUPreset {
   depth: number
 }
 
-// Municipality badge helper function
+// Municipality badge helper function with comprehensive field categorization
 function getMunicipalityBadgeConfig(bylawData: any) {
   if (!bylawData) {
     return {
       text: 'No Data',
-      className: 'text-xs bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 px-1.5 py-0.5 rounded'
+      className: 'text-xs bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-500 px-1.5 py-0.5 rounded'
     }
   }
 
-  // Calculate completeness score
-  const requiredFields = [
-    'permit_type', 'adu_types_allowed', 'front_setback_min_ft',
-    'rear_setback_standard_ft', 'side_setback_interior_ft',
-    'detached_adu_max_size_sqft', 'adu_parking_spaces_required'
+  // Essential fields - These are critical for any ADU configuration
+  const essentialFields = [
+    'adu_types_allowed',
+    'detached_adu_max_size_sqft',
+    'front_setback_min_ft',
+    'rear_setback_standard_ft', 
+    'side_setback_interior_ft',
+    'adu_parking_spaces_required',
+    'max_lot_coverage_percent'
   ]
-  const presentFields = requiredFields.filter(field => bylawData[field] !== null && bylawData[field] !== undefined)
-  const completeness = presentFields.length / requiredFields.length
 
-  // Determine content status
-  let contentStatus = ''
+  // Important fields - Needed for accurate configuration but have reasonable defaults
+  const importantFields = [
+    'permit_type',
+    'detached_adu_max_height_ft',
+    'detached_adu_min_size_sqft',
+    'detached_adu_max_stories',
+    'max_total_units',
+    'max_adus',
+    'distance_from_primary_ft',
+    'min_lot_size_sqft',
+    'owner_occupancy_required',
+    'architectural_compatibility',
+    'utility_connections',
+    'parking_configuration_allowed'
+  ]
+
+  // Nice-to-have fields - Provide additional detail and accuracy
+  const niceToHaveFields = [
+    'attached_adu_max_size_sqft',
+    'attached_adu_min_size_sqft', 
+    'side_setback_corner_street_ft',
+    'rear_setback_with_alley_ft',
+    'detached_adu_max_footprint_sqft',
+    'max_impervious_surface_percent',
+    'min_landscaped_area_percent',
+    'design_requirements',
+    'entrance_requirements',
+    'fire_access_pathway_width_ft',
+    'driveway_min_width_ft',
+    'parking_exemptions'
+  ]
+
+  // Calculate completeness for each category
+  const getFieldCount = (fields: string[]) => {
+    return fields.filter(field => {
+      const value = bylawData[field]
+      // For objects, check if they have meaningful content
+      if (typeof value === 'object' && value !== null) {
+        return Object.keys(value).length > 0
+      }
+      // For primitives, check if not null/undefined and not empty string
+      return value !== null && value !== undefined && value !== ''
+    }).length
+  }
+
+  const essentialPresent = getFieldCount(essentialFields)
+  const importantPresent = getFieldCount(importantFields)
+  const niceToHavePresent = getFieldCount(niceToHaveFields)
+
+  // Calculate weighted completeness score
+  const essentialWeight = 0.6  // 60% of the score
+  const importantWeight = 0.3  // 30% of the score  
+  const niceToHaveWeight = 0.1 // 10% of the score
+
+  const essentialScore = (essentialPresent / essentialFields.length) * essentialWeight
+  const importantScore = (importantPresent / importantFields.length) * importantWeight
+  const niceToHaveScore = (niceToHavePresent / niceToHaveFields.length) * niceToHaveWeight
+
+  const completeness = essentialScore + importantScore + niceToHaveScore
+
+  // Calculate percentage and determine styling based on completeness level
+  const percentage = Math.round(completeness * 100)
   let contentClass = ''
-  if (completeness >= 0.8) {
-    contentStatus = 'Complete'
+  let tooltip = ''
+
+  // Style the percentage badge based on completeness level
+  if (percentage >= 90) {
     contentClass = 'bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800 text-green-600 dark:text-green-400'
-  } else if (completeness >= 0.5) {
-    contentStatus = 'Partial'
+  } else if (percentage >= 65) {
+    contentClass = 'bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400'
+  } else if (percentage >= 25) {
     contentClass = 'bg-yellow-50 dark:bg-yellow-950/30 border-yellow-200 dark:border-yellow-800 text-yellow-600 dark:text-yellow-400'
   } else {
-    contentStatus = 'Incomplete'
     contentClass = 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800 text-red-600 dark:text-red-400'
   }
+
+  tooltip = `Data completeness: ${percentage}% (${essentialPresent}/${essentialFields.length} essential, ${importantPresent}/${importantFields.length} important, ${niceToHavePresent}/${niceToHaveFields.length} additional)`
 
   // Determine review status
   let reviewStatus = ''
@@ -104,18 +170,24 @@ function getMunicipalityBadgeConfig(bylawData: any) {
     reviewStatus = 'Draft'
   }
 
-  // Review status icon (simplified)
-  const ReviewIcon = reviewStatus === 'Verified' ? FileText : Eye
-  const reviewIconClass = reviewStatus === 'Verified' 
-    ? 'h-3 w-3 text-blue-500' 
-    : 'h-3 w-3 text-orange-500'
+  // Review status badge
+  const reviewBadgeClass = reviewStatus === 'Verified' 
+    ? 'text-xs border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400 px-1.5 py-0.5 rounded' 
+    : 'text-xs border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-400 px-1.5 py-0.5 rounded'
 
   return {
     contentBadge: {
-      text: contentStatus,
-      className: `text-xs border px-1.5 py-0.5 rounded ${contentClass}`
+      text: `${percentage}%`,
+      className: 'text-xs border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400 px-1.5 py-0.5 rounded',
+      tooltip: tooltip
     },
-    reviewIcon: { Icon: ReviewIcon, className: reviewIconClass, status: reviewStatus }
+    reviewBadge: { text: reviewStatus, className: reviewBadgeClass },
+    scores: {
+      overall: percentage,
+      essential: `${essentialPresent}/${essentialFields.length}`,
+      important: `${importantPresent}/${importantFields.length}`,
+      niceToHave: `${niceToHavePresent}/${niceToHaveFields.length}`
+    }
   }
 }
 
@@ -2523,17 +2595,12 @@ export default function LotConfigurator() {
                             <div className="flex items-center gap-2">
                               {(() => {
                                 const badgeConfig = getMunicipalityBadgeConfig(muni.bylaw_data)
-                                if (badgeConfig.reviewIcon) {
-                                  const ReviewIcon = badgeConfig.reviewIcon.Icon
-                                  return <ReviewIcon className={badgeConfig.reviewIcon.className} />
-                                }
-                                return null
-                              })()}
-                              {(() => {
-                                const badgeConfig = getMunicipalityBadgeConfig(muni.bylaw_data)
                                 if (badgeConfig.contentBadge) {
                                   return (
-                                    <span className={badgeConfig.contentBadge.className}>
+                                    <span 
+                                      className={badgeConfig.contentBadge.className}
+                                      title={badgeConfig.contentBadge.tooltip}
+                                    >
                                       {badgeConfig.contentBadge.text}
                                     </span>
                                   )
@@ -2545,6 +2612,17 @@ export default function LotConfigurator() {
                                     </span>
                                   )
                                 }
+                              })()}
+                              {(() => {
+                                const badgeConfig = getMunicipalityBadgeConfig(muni.bylaw_data)
+                                if (badgeConfig.reviewBadge) {
+                                  return (
+                                    <span className={badgeConfig.reviewBadge.className}>
+                                      {badgeConfig.reviewBadge.text}
+                                    </span>
+                                  )
+                                }
+                                return null
                               })()}
                             </div>
                           </div>
