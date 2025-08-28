@@ -68,7 +68,8 @@ async function fetchGlobalSearch(
   offset = 0,
   municipalityIds: number[] = [],
   categories: string[] = [],
-  aduType: string = ''
+  aduType: string = '',
+  expandedSearch: boolean = false
 ): Promise<GlobalSearchResponse> {
   const searchParams = new URLSearchParams()
   searchParams.set('q', query)
@@ -78,18 +79,8 @@ async function fetchGlobalSearch(
   municipalityIds.forEach(id => searchParams.append('municipalityIds[]', id.toString()))
   categories.forEach(category => searchParams.append('categories[]', category))
   if (aduType) searchParams.set('aduType', aduType)
+  if (expandedSearch) searchParams.set('expandedSearch', 'true')
   
-  // Debug logging (can be removed later)
-  console.log('=== FETCH GLOBAL SEARCH ===')
-  console.log('Search params:', {
-    query,
-    municipalityIds,
-    categories,
-    aduType,
-    limit,
-    offset,
-    url: `/api/search/global?${searchParams}`
-  })
 
   const response = await fetch(`/api/search/global?${searchParams}`)
   
@@ -98,17 +89,11 @@ async function fetchGlobalSearch(
   }
   
   const result = await response.json()
-  console.log('API Response:', {
-    documentsCount: result.results?.documents?.length || 0,
-    totalDocuments: result.meta?.pagination?.documentsTotal || 0,
-    hasMore: result.meta?.pagination?.hasMore || false,
-    municipalitiesCount: result.results?.municipalities?.length || 0,
-    totalResults: result.meta?.total || 0,
-    queryUsed: result.query,
-    actualDocuments: result.results?.documents || []
+  console.log('📦 API RESPONSE:', { 
+    documentsCount: result.results?.documents?.length, 
+    query: result.query,
+    municipalityFilter: municipalityIds 
   })
-  console.log('Full API Response:', result)
-  console.log('=== END FETCH GLOBAL SEARCH ===')
   
   return result
 }
@@ -116,8 +101,8 @@ async function fetchGlobalSearch(
 // Query key factory for global search
 const globalSearchKeys = {
   all: ['global-search'] as const,
-  search: (query: string, types: string[], limit: number, offset: number, municipalityIds: number[], categories: string[], aduType: string) => 
-    [...globalSearchKeys.all, 'v6', query, types, limit, offset, municipalityIds, categories, aduType] as const,
+  search: (query: string, types: string[], limit: number, offset: number, municipalityIds: number[], categories: string[], aduType: string, expandedSearch: boolean) => 
+    [...globalSearchKeys.all, 'v7', query, types, limit, offset, municipalityIds, categories, aduType, expandedSearch] as const,
 }
 
 // Global search hook
@@ -128,7 +113,8 @@ export function useGlobalSearch(
   initialOffset: number = 0,
   initialMunicipalityIds: number[] = [],
   initialCategories: string[] = [],
-  initialAduType: string = ''
+  initialAduType: string = '',
+  initialExpandedSearch: boolean = false
 ) {
   const [query, setQuery] = useState(initialQuery)
   const [searchTypes, setSearchTypes] = useState(initialTypes)
@@ -137,12 +123,17 @@ export function useGlobalSearch(
   const [municipalityIds, setMunicipalityIds] = useState(initialMunicipalityIds)
   const [categories, setCategories] = useState(initialCategories)
   const [aduType, setAduType] = useState(initialAduType)
+  const [expandedSearch, setExpandedSearch] = useState(initialExpandedSearch)
 
   const searchQuery = useQuery({
-    queryKey: globalSearchKeys.search(query, searchTypes, limit, offset, municipalityIds, categories, aduType),
-    queryFn: () => fetchGlobalSearch(query, searchTypes, limit, offset, municipalityIds, categories, aduType),
+    queryKey: globalSearchKeys.search(query, searchTypes, limit, offset, municipalityIds, categories, aduType, expandedSearch),
+    queryFn: () => {
+      console.log('🚀 FETCH TRIGGERED:', { query, municipalityIds, limit, offset, expandedSearch })
+      return fetchGlobalSearch(query, searchTypes, limit, offset, municipalityIds, categories, aduType, expandedSearch)
+    },
     enabled: query.length >= 2, // Only search with 2+ characters
-    staleTime: 1000 * 60 * 2, // 2 minutes
+    staleTime: 1000 * 30, // 30 seconds cache to prevent race conditions
+    gcTime: 1000 * 60 * 5, // Keep in cache for 5 minutes
     refetchOnWindowFocus: false, // Don't refetch on window focus
   })
 
@@ -178,6 +169,11 @@ export function useGlobalSearch(
     setOffset(0) // Reset to first page when changing filter
   }
   
+  const updateExpandedSearch = (enabled: boolean) => {
+    setExpandedSearch(enabled)
+    setOffset(0) // Reset to first page when changing search type
+  }
+  
   const nextPage = () => {
     setOffset(prev => prev + limit)
   }
@@ -207,24 +203,25 @@ export function useGlobalSearch(
     updateMunicipalityIds,
     updateCategories,
     updateAduType,
+    updateExpandedSearch,
     nextPage,
     prevPage,
     clearSearch,
-    // Convenience getters
-    hasResults: searchQuery.data && searchQuery.data.meta.total > 0,
-    totalResults: searchQuery.data?.meta.total || 0,
-    documents: searchQuery.data?.results.documents || [],
-    municipalities: searchQuery.data?.results.municipalities || [],
-    scrapers: searchQuery.data?.results.scrapers || [],
-    keywords: searchQuery.data?.results.keywords || [],
-    municipalityCounts: searchQuery.data?.results.municipalityCounts || [],
-    // Pagination info
-    totalDocuments: searchQuery.data?.meta.pagination?.documentsTotal === -1 ? -1 : (searchQuery.data?.meta.pagination?.documentsTotal || 0),
+    // Convenience getters - force boolean values to prevent undefined
+    hasResults: Boolean(searchQuery.data?.meta?.total && searchQuery.data.meta.total > 0),
+    totalResults: searchQuery.data?.meta?.total || 0,
+    documents: searchQuery.data?.results?.documents || [],
+    municipalities: searchQuery.data?.results?.municipalities || [],
+    scrapers: searchQuery.data?.results?.scrapers || [],
+    keywords: searchQuery.data?.results?.keywords || [],
+    municipalityCounts: searchQuery.data?.results?.municipalityCounts || [],
+    // Pagination info - force boolean values to prevent undefined
+    totalDocuments: searchQuery.data?.meta?.pagination?.documentsTotal === -1 ? -1 : (searchQuery.data?.meta?.pagination?.documentsTotal || 0),
     currentPage: Math.floor(offset / limit) + 1,
-    totalPages: searchQuery.data?.meta.pagination?.documentsTotal === -1 
+    totalPages: searchQuery.data?.meta?.pagination?.documentsTotal === -1 
       ? 0 // Unknown total
-      : Math.ceil((searchQuery.data?.meta.pagination?.documentsTotal || 0) / limit),
-    hasNextPage: searchQuery.data?.meta.pagination?.hasMore || false,
+      : Math.ceil((searchQuery.data?.meta?.pagination?.documentsTotal || 0) / limit),
+    hasNextPage: Boolean(searchQuery.data?.meta?.pagination?.hasMore),
     hasPrevPage: offset > 0,
   }
 }

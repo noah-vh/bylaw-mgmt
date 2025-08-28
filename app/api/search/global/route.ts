@@ -12,6 +12,7 @@ const globalSearchSchema = z.object({
   municipalityIds: z.array(z.string().transform(Number)).optional(), // For filtering by municipality
   categories: z.array(z.string()).optional(), // For filtering by categories
   aduType: z.string().optional(), // For filtering by ADU type
+  expandedSearch: z.string().optional().transform(val => val === 'true'), // For enabling synonym expansion
 })
 
 // GET /api/search/global - Global search across documents, municipalities, and keywords
@@ -31,6 +32,7 @@ export async function GET(request: NextRequest) {
       municipalityIds: municipalityIdsParam.length > 0 ? municipalityIdsParam : undefined,
       categories: categoriesParam.length > 0 ? categoriesParam : undefined,
       aduType: searchParams.get('aduType') || undefined,
+      expandedSearch: searchParams.get('expandedSearch') || undefined,
     }
     
     const validation = globalSearchSchema.safeParse(queryParams)
@@ -45,14 +47,15 @@ export async function GET(request: NextRequest) {
       )
     }
     
-    const { q: originalQuery, types, limit, offset, municipalityIds: rawMunicipalityIds, categories, aduType } = validation.data
+    const { q: originalQuery, types, limit, offset, municipalityIds: rawMunicipalityIds, categories, aduType, expandedSearch } = validation.data
     
-    // Expand the query with synonyms for better search results
-    const expandedQuery = expandQuery(originalQuery)
+    // Use synonym expansion only if explicitly requested
+    const expandedQuery = expandedSearch ? expandQuery(originalQuery) : originalQuery
     console.log('Original query:', originalQuery)
-    console.log('Expanded query:', expandedQuery)
+    console.log('Expanded search enabled:', expandedSearch)
+    console.log('Query to use:', expandedQuery)
     
-    // Use expanded query for search operations
+    // Use appropriate query based on user preference
     const query = expandedQuery
     
     // When no municipalities are selected (empty array), pass null to search all municipalities
@@ -151,43 +154,67 @@ export async function GET(request: NextRequest) {
             municipalityIds_type: typeof municipalityIds
           })
           
-          // If the query contains synonyms (expanded), try a different approach
+          // Always use reliable individual term search for synonym queries
           let optimizedData: any[] = []
           let optimizedError: any = null
           
           if (query !== originalQuery && query.includes('OR')) {
             // For synonym queries, search each term individually and combine results
-            console.log('Using synonym search approach...')
+            console.log('Using reliable individual term search approach...')
             const synonymTerms = query.replace(/[()]/g, '').split(' OR ').map(term => term.trim())
             const allResults = new Map() // Use Map to deduplicate by document ID
+            
+            console.log(`Searching ${synonymTerms.length} synonym terms:`, synonymTerms)
             
             for (const term of synonymTerms) {
               try {
                 const { data: termData } = await supabase.rpc('search_documents_optimized', {
                   search_query: term,
-                  max_results: Math.ceil(limit / synonymTerms.length * 2), // Get more per term
+                  max_results: Math.min(200, Math.max(100, limit * 2)), // Balanced comprehensive approach
                   result_offset: 0,
                   filter_municipality_ids: municipalityIds
                 })
                 
-                if (termData) {
+                if (termData && termData.length > 0) {
+                  console.log(`Term "${term}" found ${termData.length} results`)
                   termData.forEach((doc: any) => {
-                    allResults.set(doc.id, doc) // Deduplicate by ID
+                    // Keep the best ranking for each document
+                    const existing = allResults.get(doc.id)
+                    if (!existing || doc.rank > existing.rank) {
+                      allResults.set(doc.id, doc)
+                    }
                   })
+                } else {
+                  console.log(`Term "${term}" found 0 results`)
                 }
               } catch (error) {
                 console.error(`Error searching for term "${term}":`, error)
               }
             }
             
-            optimizedData = Array.from(allResults.values())
+            console.log(`Combined ${allResults.size} unique documents from all synonym terms`)
+            
+            const allSortedResults = Array.from(allResults.values())
               .sort((a, b) => {
-                // Sort by relevance, then by date
+                // Sort by relevance, then by rank, then by date
                 if (a.is_relevant && !b.is_relevant) return -1
                 if (!a.is_relevant && b.is_relevant) return 1
+                if (a.rank !== b.rank) return b.rank - a.rank
                 return new Date(b.date_found).getTime() - new Date(a.date_found).getTime()
               })
-              .slice(offset, offset + limit) // Apply pagination
+            
+            // Apply pagination to the full sorted result set
+            optimizedData = allSortedResults.slice(offset, offset + limit)
+            
+            // Set hasMore based on total results available
+            const hasMoreResults = allSortedResults.length > (offset + limit)
+            
+            // Set the total count for this synonym search
+            results.pagination.documentsTotal = allSortedResults.length
+            results.pagination.hasMore = hasMoreResults
+              
+            console.log(`Returning ${optimizedData.length} documents (${offset}-${offset + limit} of ${allSortedResults.length} total)`)
+            console.log(`Has more pages: ${hasMoreResults}`)
               
           } else {
             // Standard search for non-synonym queries

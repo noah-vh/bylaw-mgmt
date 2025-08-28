@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, Suspense } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
+import { useQueryClient } from "@tanstack/react-query"
 import { 
   Search, 
   Filter, 
@@ -51,6 +52,7 @@ import { createDocumentId, createMunicipalityId } from "@/types/database"
 function SearchPageContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
+  const queryClient = useQueryClient()
   const initialQuery = searchParams.get('q') || ''
   
   const [showFilters, setShowFilters] = useState(false)
@@ -62,6 +64,7 @@ function SearchPageContent() {
   const [selectedDocument, setSelectedDocument] = useState<(PdfDocument & { municipality?: { name: string } }) | null>(null)
   const [selectedCategories, setSelectedCategories] = useState<string[]>([])
   const [selectedAduType, setSelectedAduType] = useState<string>('')
+  const [expandedSearch, setExpandedSearch] = useState(false)
   
   const handleOpenDocument = async (document: PdfDocument & { municipality?: { name: string } }) => {
     // If document lacks content_text, fetch complete document data
@@ -142,14 +145,9 @@ function SearchPageContent() {
     categories: searchCategories,
     aduType: searchAduType,
     updateCategories,
-    updateAduType
-  } = useGlobalSearch(
-    initialQuery, 
-    ['documents', 'municipalities'], 
-    100, 
-    0, 
-    municipalityIds
-  )
+    updateAduType,
+    updateExpandedSearch
+  } = useGlobalSearch(initialQuery, ['documents', 'municipalities'], 100, 0, [], [], '', expandedSearch)
 
   // Advanced document search - kept for potential future use but not currently used
   // const {
@@ -229,33 +227,12 @@ function SearchPageContent() {
     return 0
   })()
 
-  // Debug logging (can be removed later)
-  useEffect(() => {
-    console.log('=== SEARCH PAGE DEBUG ===')
-    console.log('Current municipality filters (UI):', municipalityIds)
-    console.log('Documents returned:', searchDocuments.length)
-    console.log('All documents from hook:', allDocuments.length)
-    console.log('Total documents from API:', totalDocuments)
-    console.log('Overall total documents (from municipalities):', overallTotalDocuments)
-    console.log('Has results:', hasResults)
-    console.log('Query:', query)
-    console.log('Search loading:', searchLoading)
-    console.log('Search error:', searchError)
-    console.log('Municipality counts:', municipalityCounts)
-    console.log('Municipality counts length:', municipalityCounts.length)
-    console.log('Filtered total results calculated:', filteredTotalResults)
-    console.log('Active filters size:', activeFilters.size)
-    console.log('Global search data:', globalSearchData)
-    console.log('Search documents array:', searchDocuments)
-    if (municipalitiesData?.data) {
-      console.log('Total municipalities loaded:', municipalitiesData.data.length)
-    }
-    console.log('=== END DEBUG ===')
-  }, [municipalityIds, searchDocuments, allDocuments, totalDocuments, overallTotalDocuments, hasResults, query, searchLoading, searchError, municipalityCounts, filteredTotalResults, municipalitiesData, activeFilters, globalSearchData])
 
-  // Sync municipality filter changes with the search hook
+  // Sync municipality filter changes with the search hook (like documents page)
   useEffect(() => {
     updateMunicipalityIds(municipalityIds)
+    // Only invalidate cache if we have a query and municipality filter actually changed
+    // Don't invalidate on initial load or when clearing
   }, [municipalityIds, updateMunicipalityIds])
 
   const clearFilters = () => {
@@ -265,6 +242,8 @@ function SearchPageContent() {
     setDateRange({})
     setSelectedCategories([])
     setSelectedAduType('')
+    setExpandedSearch(false)
+    updateExpandedSearch(false)
   }
 
   const activeFiltersCount = (municipalityIds.length > 0 ? 1 : 0) + 
@@ -272,7 +251,8 @@ function SearchPageContent() {
     (isAnalyzedOnly ? 1 : 0) + 
     (dateRange.from || dateRange.to ? 1 : 0) +
     (selectedCategories.length > 0 ? 1 : 0) +
-    (selectedAduType ? 1 : 0)
+    (selectedAduType ? 1 : 0) +
+    (expandedSearch ? 1 : 0)
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -682,6 +662,29 @@ function SearchPageContent() {
                     variant="help"
                   />
                 </div>
+
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="expanded-search"
+                    checked={expandedSearch}
+                    onCheckedChange={(checked) => {
+                      setExpandedSearch(checked === true)
+                      updateExpandedSearch(checked === true)
+                    }}
+                  />
+                  <Label htmlFor="expanded-search" className="text-sm cursor-pointer">
+                    Expanded query
+                  </Label>
+                  <HelpTooltip 
+                    content="Find related terms (e.g., 'setback' also finds 'separation'). Takes longer but finds more results."
+                    variant="help"
+                  />
+                  {expandedSearch && searchLoading && (
+                    <span className="text-xs text-orange-600 font-medium">
+                      Searching synonyms...
+                    </span>
+                  )}
+                </div>
                 
                 <div className="flex items-center space-x-2">
                   <Checkbox
@@ -762,12 +765,9 @@ function SearchPageContent() {
         )}
 
         {/* Global Search Results */}
-        {hasResults && (
-          <div className="space-y-6">
-            
-
-            {/* Municipalities Results */}
-            {searchMunicipalities.length > 0 && (activeFilters.size === 0 || activeFilters.has('municipalities')) && (
+        <div className="space-y-6">
+          {/* Municipalities Results */}
+          {searchMunicipalities.length > 0 && (activeFilters.size === 0 || activeFilters.has('municipalities')) && (
               <div>
                 <div className="flex items-center gap-2 mb-4">
                   <Building2 className="h-5 w-5 text-muted-foreground" />
@@ -783,11 +783,11 @@ function SearchPageContent() {
             )}
 
             {/* Documents Results */}
-            {searchDocuments.length > 0 && (activeFilters.size === 0 || activeFilters.has('documents')) && (
+            {Array.isArray(searchDocuments) && searchDocuments.length > 0 && (activeFilters.size === 0 || activeFilters.has('documents')) && (
               <div>
                 <div className="flex items-center gap-2 mb-4">
                   <FileText className="h-5 w-5 text-muted-foreground" />
-                  <h3 className="text-lg font-semibold">Documents</h3>
+                  <h3 className="text-lg font-semibold">Documents ({searchDocuments.length})</h3>
                 </div>
                 <div className="space-y-4">
                   {searchDocuments.map((document: any) => {
@@ -862,8 +862,7 @@ function SearchPageContent() {
                 )}
               </div>
             )}
-          </div>
-        )}
+        </div>
 
         {/* No Results */}
         {query && !searchLoading && (!hasResults || (

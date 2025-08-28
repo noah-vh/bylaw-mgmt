@@ -75,11 +75,11 @@ export function UserGuide({ title, sections, isOpen, onClose }: UserGuideProps) 
                 </CollapsibleTrigger>
                 <CollapsibleContent className="mt-4">
                   <div className="bg-muted/20 rounded-lg p-5 space-y-5">
-                    {/* Special layout for Synonym Reference section */}
-                    {section.title === "Synonym Reference" ? (
+                    {/* Special layout for Expanded Query Reference section */}
+                    {section.title === "Expanded Query Reference" ? (
                       <div className="space-y-4">
                         <p className="text-sm text-muted-foreground mb-4">
-                          Search any one term to automatically find all related terms:
+                          When expanded query is enabled, search any one term to automatically find all related terms:
                         </p>
                         <div className="grid gap-4">
                           {section.steps.map((group, groupIndex) => {
@@ -190,8 +190,8 @@ export const SEARCH_GUIDE_SECTIONS: GuideSection[] = [
     ]
   },
   {
-    title: "Synonym Reference",
-    description: "Search any one term to automatically find all related terms:",
+    title: "Expanded Query Reference",
+    description: "When expanded query is enabled, search any one term to automatically find all related terms:",
     steps: [
       "🏠 ADU/Dwelling: ADU, accessory dwelling unit, garden suite, laneway house, granny flat, secondary suite, ARU, accessory residential unit, coach house, carriage house, in-law suite, basement apartment, tiny home",
       "📏 Height: height, tall, elevation, maximum, max, greatest, highest, peak, tallest, limit, storey, story, floor, level",  
@@ -201,6 +201,7 @@ export const SEARCH_GUIDE_SECTIONS: GuideSection[] = [
       "📍 Property: lot, property, parcel, site, setback, yard requirement, separation, coverage, lot coverage, building coverage, footprint, area, floor area, GFA"
     ],
     tips: [
+      "Enable 'Expanded query' checkbox in filters to activate synonym search",
       "Search ONE term from any group to find documents with ALL terms",
       "Example: Search 'max' automatically finds 'maximum', 'highest', 'limit', etc.",
       "Example: Search 'ADU' automatically finds 'garden suite', 'laneway house', 'ARU', etc."
