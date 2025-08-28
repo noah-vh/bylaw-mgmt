@@ -112,6 +112,9 @@ function SearchPageContent() {
   const filters = {
     searchType: searchType
   }
+  // Internal municipality state management (like documents page)
+  const [municipalityIds, setMunicipalityIds] = useState<number[]>([])
+  
   // Use global search instead of document-only search
   const {
     data: globalSearchData,
@@ -134,14 +137,19 @@ function SearchPageContent() {
     prevPage,
     limit,
     updateLimit,
-    municipalityIds,
     updateMunicipalityIds,
     municipalityCounts,
     categories: searchCategories,
     aduType: searchAduType,
     updateCategories,
     updateAduType
-  } = useGlobalSearch(initialQuery)
+  } = useGlobalSearch(
+    initialQuery, 
+    ['documents', 'municipalities'], 
+    100, 
+    0, 
+    municipalityIds
+  )
 
   // Advanced document search - kept for potential future use but not currently used
   // const {
@@ -197,7 +205,7 @@ function SearchPageContent() {
           .filter((mc: any) => municipalityIds.includes(mc.municipality_id))
           .reduce((sum: number, mc: any) => sum + (mc.document_count || 0), 0)
       } else {
-        // No municipality filter, sum all search results
+        // No municipality filter, sum all search results from all municipalities
         return municipalityCounts.reduce((sum: number, mc: any) => sum + (mc.document_count || 0), 0)
       }
     }
@@ -236,14 +244,22 @@ function SearchPageContent() {
     console.log('Municipality counts:', municipalityCounts)
     console.log('Municipality counts length:', municipalityCounts.length)
     console.log('Filtered total results calculated:', filteredTotalResults)
+    console.log('Active filters size:', activeFilters.size)
+    console.log('Global search data:', globalSearchData)
+    console.log('Search documents array:', searchDocuments)
     if (municipalitiesData?.data) {
       console.log('Total municipalities loaded:', municipalitiesData.data.length)
     }
     console.log('=== END DEBUG ===')
-  }, [municipalityIds, searchDocuments, allDocuments, totalDocuments, overallTotalDocuments, hasResults, query, searchLoading, searchError, municipalityCounts, filteredTotalResults, municipalitiesData])
+  }, [municipalityIds, searchDocuments, allDocuments, totalDocuments, overallTotalDocuments, hasResults, query, searchLoading, searchError, municipalityCounts, filteredTotalResults, municipalitiesData, activeFilters, globalSearchData])
+
+  // Sync municipality filter changes with the search hook
+  useEffect(() => {
+    updateMunicipalityIds(municipalityIds)
+  }, [municipalityIds, updateMunicipalityIds])
 
   const clearFilters = () => {
-    updateMunicipalityIds([])
+    setMunicipalityIds([])
     setIsRelevantOnly(false)
     setIsAnalyzedOnly(false)
     setDateRange({})
@@ -350,7 +366,7 @@ function SearchPageContent() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => updateMunicipalityIds([])}
+                  onClick={() => setMunicipalityIds([])}
                   className="h-8 text-muted-foreground hover:text-foreground"
                 >
                   Clear all
@@ -371,7 +387,7 @@ function SearchPageContent() {
             <Button
               variant={municipalityIds.length === 0 ? "default" : "outline"}
               size="sm"
-              onClick={() => updateMunicipalityIds([])}
+              onClick={() => setMunicipalityIds([])}
               className="h-8"
             >
               All
@@ -417,10 +433,10 @@ function SearchPageContent() {
                   onClick={() => {
                     if (isSelected) {
                       // Remove from selection
-                      updateMunicipalityIds(municipalityIds.filter(id => id !== municipality.id))
+                      setMunicipalityIds(municipalityIds.filter(id => id !== municipality.id))
                     } else {
                       // Add to selection  
-                      updateMunicipalityIds([...municipalityIds, municipality.id])
+                      setMunicipalityIds([...municipalityIds, municipality.id])
                     }
                   }}
                   className="h-8 flex items-center gap-1"
@@ -489,10 +505,10 @@ function SearchPageContent() {
                     onClick={() => {
                       if (isSelected) {
                         // Remove from selection
-                        updateMunicipalityIds(municipalityIds.filter(id => id !== municipality.id))
+                        setMunicipalityIds(municipalityIds.filter(id => id !== municipality.id))
                       } else {
                         // Add to selection
-                        updateMunicipalityIds([...municipalityIds, municipality.id])
+                        setMunicipalityIds([...municipalityIds, municipality.id])
                       }
                     }}
                     className="h-8 flex items-center gap-1"

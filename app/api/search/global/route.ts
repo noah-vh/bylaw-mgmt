@@ -146,7 +146,9 @@ export async function GET(request: NextRequest) {
             max_results: limit,
             result_offset: offset,
             filter_municipality_ids: municipalityIds,
-            municipalityIds_length: municipalityIds ? municipalityIds.length : 'null (all municipalities)'
+            municipalityIds_length: municipalityIds ? municipalityIds.length : 'null (all municipalities)',
+            municipalityIds_is_null: municipalityIds === null,
+            municipalityIds_type: typeof municipalityIds
           })
           
           // If the query contains synonyms (expanded), try a different approach
@@ -189,6 +191,7 @@ export async function GET(request: NextRequest) {
               
           } else {
             // Standard search for non-synonym queries
+            console.log('Making standard RPC call to search_documents_optimized...')
             const { data, error } = await supabase.rpc('search_documents_optimized', {
               search_query: query,
               max_results: limit,
@@ -197,6 +200,11 @@ export async function GET(request: NextRequest) {
             })
             optimizedData = data
             optimizedError = error
+            console.log('RPC call completed:', {
+              dataLength: data ? data.length : 0,
+              error: error,
+              hasData: !!data
+            })
           }
           
           if (optimizedError) {
