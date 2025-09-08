@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect, Suspense } from "react"
+import React, { useState, useEffect, useRef, Suspense } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
 import { 
@@ -54,6 +54,8 @@ function SearchPageContent() {
   const router = useRouter()
   const queryClient = useQueryClient()
   const initialQuery = searchParams.get('q') || ''
+  const [searchInput, setSearchInput] = useState(initialQuery)
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   
   const [showFilters, setShowFilters] = useState(false)
   const [isRelevantOnly, setIsRelevantOnly] = useState(false)
@@ -147,7 +149,7 @@ function SearchPageContent() {
     updateCategories,
     updateAduType,
     updateExpandedSearch
-  } = useGlobalSearch(initialQuery, ['documents', 'municipalities'], 100, 0, [], [], '', expandedSearch)
+  } = useGlobalSearch(initialQuery, ['documents', 'municipalities'], 50, 0, [], [], '', expandedSearch)
 
   // Advanced document search - kept for potential future use but not currently used
   // const {
@@ -170,12 +172,29 @@ function SearchPageContent() {
   }, [initialQuery, query, search])
 
 
-  const handleSearch = (searchQuery: string) => {
-    search(searchQuery)
-    // Update URL
-    const params = new URLSearchParams()
-    if (searchQuery) params.set('q', searchQuery)
-    router.push(`/search?${params.toString()}`)
+  const handleSearch = (searchQuery: string, immediate = false) => {
+    // Clear any existing timeout
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current)
+    }
+    
+    // For immediate search (e.g., Enter key), execute right away
+    if (immediate) {
+      search(searchQuery)
+      // Update URL
+      const params = new URLSearchParams()
+      if (searchQuery) params.set('q', searchQuery)
+      router.push(`/search?${params.toString()}`)
+    } else {
+      // Debounce the search with a longer delay
+      searchTimeoutRef.current = setTimeout(() => {
+        search(searchQuery)
+        // Update URL
+        const params = new URLSearchParams()
+        if (searchQuery) params.set('q', searchQuery)
+        router.push(`/search?${params.toString()}`)
+      }, 800) // Increased from 300ms to 800ms
+    }
   }
 
   // No need for client-side filtering anymore - it's done on the server
@@ -278,15 +297,14 @@ function SearchPageContent() {
             <Input
               placeholder="Search bylaws, policies, and municipalities..."
               className="pl-10"
-              defaultValue={initialQuery}
+              value={searchInput}
+              onChange={(e) => {
+                setSearchInput(e.target.value)
+                handleSearch(e.target.value, false) // Debounced search
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
-                  handleSearch(e.currentTarget.value)
-                }
-              }}
-              onBlur={(e) => {
-                if (e.target.value !== query) {
-                  handleSearch(e.target.value)
+                  handleSearch(e.currentTarget.value, true) // Immediate search
                 }
               }}
             />
@@ -319,10 +337,10 @@ function SearchPageContent() {
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="10">10 per page</SelectItem>
                 <SelectItem value="25">25 per page</SelectItem>
                 <SelectItem value="50">50 per page</SelectItem>
                 <SelectItem value="100">100 per page</SelectItem>
+                <SelectItem value="200">200 per page</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -680,7 +698,7 @@ function SearchPageContent() {
                     variant="help"
                   />
                   {expandedSearch && searchLoading && (
-                    <span className="text-xs text-orange-600 font-medium">
+                    <span className="text-xs text-orange-600 font-medium animate-pulse">
                       Searching synonyms...
                     </span>
                   )}

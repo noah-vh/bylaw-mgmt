@@ -132,9 +132,10 @@ export function useGlobalSearch(
       return fetchGlobalSearch(query, searchTypes, limit, offset, municipalityIds, categories, aduType, expandedSearch)
     },
     enabled: query.length >= 2, // Only search with 2+ characters
-    staleTime: 1000 * 30, // 30 seconds cache to prevent race conditions
-    gcTime: 1000 * 60 * 5, // Keep in cache for 5 minutes
+    staleTime: 1000 * 60 * 2, // 2 minutes cache - increased from 30 seconds
+    gcTime: 1000 * 60 * 10, // Keep in cache for 10 minutes - increased from 5
     refetchOnWindowFocus: false, // Don't refetch on window focus
+    refetchOnMount: false, // Don't refetch if data exists
   })
 
   const search = (searchQuery: string) => {

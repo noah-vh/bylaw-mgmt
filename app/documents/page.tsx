@@ -855,7 +855,6 @@ function DocumentTableView({
                 </button>
               </TableHead>
               <TableHead className="w-36 text-right whitespace-nowrap">Date Published</TableHead>
-              <TableHead className="w-40 text-right whitespace-nowrap">Document Content</TableHead>
               <TableHead className="w-16 text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -909,9 +908,6 @@ function DocumentTableView({
                   <div className="text-sm text-muted-foreground whitespace-nowrap">
                     {(document as any).date_published ? format(new Date((document as any).date_published), 'MMM d, yyyy') : 'N/A'}
                   </div>
-                </TableCell>
-                <TableCell className="text-right">
-                  <DocumentStatus document={document} />
                 </TableCell>
                 <TableCell className="relative text-right">
                   <div 
