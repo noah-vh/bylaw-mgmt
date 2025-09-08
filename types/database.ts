@@ -718,6 +718,7 @@ export interface DocumentSearchParams extends PaginationParams {
   readonly extractionStatus?: ExtractionStatus;
   readonly analysisStatus?: AnalysisStatus;
   readonly category?: string;
+  readonly source?: 'all' | 'client' | 'scraped';
 }
 
 /** Municipality search parameters */
