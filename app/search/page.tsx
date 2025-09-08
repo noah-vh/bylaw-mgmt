@@ -718,16 +718,9 @@ function SearchPageContent() {
         {query && (
           <div className="mb-6">
             <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <h2 className="text-lg font-semibold">
-                  Search results for "{query}"
-                </h2>
-                {hasResults && filteredTotalResults > 0 && (
-                  <Badge variant="outline">
-                    {filteredTotalResults} results
-                  </Badge>
-                )}
-              </div>
+              <h2 className="text-lg font-semibold">
+                Search results for "{query}"
+              </h2>
               {query && (
                 <Button variant="ghost" size="sm" onClick={clearSearch}>
                   <X className="mr-1 h-4 w-4" />
@@ -787,7 +780,7 @@ function SearchPageContent() {
               <div>
                 <div className="flex items-center gap-2 mb-4">
                   <FileText className="h-5 w-5 text-muted-foreground" />
-                  <h3 className="text-lg font-semibold">Documents ({searchDocuments.length})</h3>
+                  <h3 className="text-lg font-semibold">Documents</h3>
                 </div>
                 <div className="space-y-4">
                   {searchDocuments.map((document: any) => {
@@ -1021,8 +1014,6 @@ interface SearchResultCardProps {
 }
 
 function SearchResultCard({ document, onOpenDocument }: SearchResultCardProps) {
-  const relevanceScore = document.relevance_score
-  
   // Use highlighted title if available
   const displayTitle = document.highlighted?.title || document.title
   
