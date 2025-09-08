@@ -172,7 +172,8 @@ export async function POST(request: NextRequest) {
       is_relevant: validatedData.is_adu_relevant || false, // Note: column is 'is_relevant' not 'is_adu_relevant'
       date_found: new Date().toISOString(),
       last_checked: new Date().toISOString(),
-      is_favorited: false
+      is_favorited: false,
+      document_source: 'client' // Mark all uploaded documents as client-provided
     }
     
     // Only include storage_path if we actually uploaded a file

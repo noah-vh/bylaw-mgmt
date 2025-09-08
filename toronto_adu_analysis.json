@@ -1,0 +1,248 @@
+{
+  "jurisdiction": "Toronto",
+  "province_state": "Ontario",
+  "country": "Canada",
+  "analysis_date": "2025-01-08",
+  "source_documents": [
+    "City of Toronto Zoning By-law 569-2013, as amended (Office Consolidation)",
+    "By-law 1210-2019 (Laneway Suite Amendments)",
+    "By-law 101-2022 (Garden Suite Permissions)",
+    "Garden Suites Summary of Rules and Regulations (Feb 2022)"
+  ],
+  
+  "primary_bylaw": {
+    "bylaw_ordinance_number": "Zoning By-law 569-2013",
+    "effective_date": "May 9, 2013",
+    "last_update": "July 31, 2023 (including amendments up to April 1, 2024)",
+    "status": "Under appeal but being applied"
+  },
+
+  "permitted_zones": [
+    "R (Residential)",
+    "RD (Residential Detached)",
+    "RS (Residential Semi-detached)",
+    "RT (Residential Townhouse)",
+    "RM (Residential Multiple)"
+  ],
+
+  "adu_types_allowed": [
+    {
+      "type": "Secondary Suite",
+      "description": "Living accommodation within the main residential building",
+      "regulatory_section": "Section 150.10"
+    },
+    {
+      "type": "Laneway Suite",
+      "description": "Self-contained living accommodation in an ancillary building abutting a lane",
+      "regulatory_section": "Section 150.8",
+      "definition": "A self-contained living accommodation for a person or persons living together as a separate single housekeeping unit, in which both food preparation and sanitary facilities are provided for the exclusive use of the occupants of the suite and is in an ancillary building abutting a lane"
+    },
+    {
+      "type": "Garden Suite",
+      "description": "Self-contained living accommodation in an ancillary building not abutting a lane",
+      "regulatory_section": "Section 150.7",
+      "definition": "A self-contained living accommodation for a person or persons living together as a separate single housekeeping unit, in which both food preparation and sanitary facilities are provided for the exclusive use of the occupant(s) of the suite and is in an ancillary building not abutting a lane"
+    }
+  ],
+
+  "key_restrictions": {
+    "mutual_exclusivity": "A lot may contain only one ancillary building containing either a laneway suite OR a garden suite, but not both",
+    "one_per_lot": "Maximum of one garden suite or laneway suite per lot"
+  },
+
+  "laneway_suites": {
+    "lot_requirements": {
+      "lane_access": "Minimum 3.5 metres of lot line abutting a lane (rear or side lot line)",
+      "cumulative_access": "Or cumulative total of 3.5 metres along side and rear lot lines"
+    },
+    "size_limits": {
+      "floor_area_restriction": "Interior floor area must be less than gross floor area of main residential building",
+      "maximum_dimensions": {
+        "length": "10.0 metres",
+        "width": "8.0 metres"
+      },
+      "exclusion_from_fsi": "Not included in floor space index calculations"
+    },
+    "height_limits": {
+      "standard": "4.0 metres (if 5.0m to <7.5m from main building)",
+      "increased": "6.3 metres (if ≥7.5m from main building)",
+      "maximum_storeys": 2,
+      "exceptions": {
+        "antenna_flagpoles": "+1.0 metres",
+        "skylights": "+0.3 metres",
+        "mechanical_equipment": "+1.5 metres (max 30% roof coverage, 1.5m from walls)"
+      }
+    },
+    "setback_requirements": {
+      "rear_yard": {
+        "no_openings_no_street_lane": "0.0 metres",
+        "all_other_cases": "1.0 metres"
+      },
+      "side_yard": {
+        "no_openings_no_street_lane": "0.0 metres",
+        "abutting_street": "Same as main residential building",
+        "abutting_R_RD_RS_RT_RM_zones": "1.5 metres (starting at 4.0m height)",
+        "all_other_cases": "1.0 metres"
+      },
+      "separation_from_main_building": {
+        "under_4m_height": "Minimum 5.0 metres",
+        "over_4m_height": "Minimum 7.5 metres"
+      }
+    },
+    "angular_planes": {
+      "description": "45-degree angular plane from 4.0m height at 7.5m from rear wall of main building",
+      "projections_allowed": "Dormers/vertical extensions up to 30% of front wall width",
+      "skylights_windows": "Maximum 0.3m projection into plane"
+    },
+    "landscaping_requirements": {
+      "narrow_lots": "60% soft landscaping between buildings (≤6.0m frontage)",
+      "wide_lots": "85% soft landscaping between buildings (>6.0m frontage), excluding 1.5m walkway",
+      "lane_area": "75% soft landscaping between suite and lane (excluding driveway/1.5m walkway)"
+    },
+    "parking_requirements": {
+      "vehicle_parking": "No parking spaces required for laneway suite or main dwelling",
+      "bicycle_parking": "Minimum 2 bicycle spaces within suite or setback areas"
+    },
+    "lot_coverage": {
+      "exclusion": "Laneway suite not included in overall lot coverage calculation",
+      "combined_limit": "All ancillary buildings combined ≤30% of lot area"
+    },
+    "special_provisions": {
+      "home_occupation": "Permitted if suite is principal residence",
+      "short_term_rental": "Permitted if suite is principal residence",
+      "early_construction": "May be built before main building completion"
+    },
+    "location_restrictions": {
+      "excluded_area": "Not permitted in area bounded by Avenue Road, CP rail corridor, Yonge Street, Rosedale Valley Road, Sherbourne Street, Bloor Street East and West"
+    }
+  },
+
+  "garden_suites": {
+    "location_requirements": {
+      "lane_restriction": "Must be on properties NOT next to public laneway",
+      "rear_yard_only": "Located in rear yards of residential properties"
+    },
+    "size_limits": {
+      "maximum_footprint": "Smaller of 40% of rear yard area OR 60 square metres",
+      "floor_area_restriction": "Interior floor area must be less than gross floor area of main residential building"
+    },
+    "height_limits": {
+      "standard": "4.0 metres (if 5.0m to <7.5m from main building)",
+      "increased": "6.0 metres (if ≥7.5m from main building)",
+      "special_area_height": "6.3 metres (in specific Beaches area: Coxwell Ave to Victoria Park, Don River to Lake Ontario)",
+      "maximum_storeys": 2,
+      "exceptions": {
+        "antenna_flagpoles": "+1.0 metres",
+        "skylights": "+0.3 metres", 
+        "mechanical_equipment": "+1.0 metres (max 30% roof coverage, 1.0m from walls)"
+      }
+    },
+    "setback_requirements": {
+      "rear_yard": {
+        "standard": "1.5 metres",
+        "deep_lots": "Greater of 1.5m or half building height (lots >45m deep)",
+        "through_lots": "Match front yard setback of adjacent houses or 1.5m minimum",
+        "through_lots_with_parking": "Greater of 6.0m or required front setback"
+      },
+      "side_yard": {
+        "no_openings": "Greater of 0.6m or 10% lot frontage (max 3.0m)",
+        "with_openings": "Greater of 1.5m or 10% lot frontage (max 3.0m)",
+        "corner_lots": "Greater of required main building setback or 1.5m",
+        "corner_with_parking": "6.0 metres"
+      },
+      "separation_from_main_building": {
+        "under_4m_height": "Minimum 5.0 metres", 
+        "over_4m_height": "Minimum 7.5 metres",
+        "special_beaches_area": "Minimum 5.0 metres regardless of height"
+      }
+    },
+    "angular_planes": {
+      "front": "45° from 4.0m height at 7.5m from main building rear wall",
+      "rear": "45° from 4.0m height at required rear setback",
+      "side": "45° from 4.0m height at required side setback",
+      "street_exemption": "No angular plane where lot line abuts street",
+      "special_beaches_area": "45° from 4.0m height at 5.0m from main building"
+    },
+    "landscaping_requirements": {
+      "wide_lots": "50% of rear yard area soft landscaping (>6.0m frontage)",
+      "narrow_lots": "25% of rear yard area soft landscaping (≤6.0m frontage)"
+    },
+    "parking_requirements": {
+      "vehicle_parking": "No parking spaces required",
+      "bicycle_parking": "Minimum 2 bicycle spaces within suite or setback areas"
+    },
+    "lot_coverage": {
+      "exclusion": "Garden suite not included in overall lot coverage calculation",
+      "combined_limit": "All ancillary buildings combined ≤20% of lot area",
+      "suite_specific": "Garden suite footprint ≤ lesser of 40% rear yard area or 60m²"
+    },
+    "emergency_access": {
+      "travel_distance": "Maximum 45 metres from public street to suite entrance",
+      "pathway_width": "Minimum 1.0 metre width",
+      "vertical_clearance": "Minimum 2.1 metres",
+      "obstructions": "Unobstructed except utility meters"
+    },
+    "special_provisions": {
+      "basements": "Permitted",
+      "home_occupation": "Permitted if suite is principal residence", 
+      "short_term_rental": "Permitted if suite is principal residence (subject to STR bylaw)",
+      "severance_prohibition": "Properties with garden suites cannot be divided/severed",
+      "tree_protection": "Should not result in removal of protected trees"
+    },
+    "special_areas": {
+      "beaches_area": {
+        "boundaries": "Coxwell Avenue/Boulevard and Massey Creek (west), Don River and Sunrise Avenue (north), Victoria Park Avenue and Nursewood Park (east), Lake Ontario (south)",
+        "height_limit": "6.3 metres maximum",
+        "separation": "5.0 metres minimum from main building regardless of suite height",
+        "angular_plane": "45° from 4.0m height at 5.0m from main building"
+      }
+    }
+  },
+
+  "entrance_requirements": {
+    "laneway_suites": {
+      "exemption": "Standard entrance height regulations do not apply"
+    },
+    "garden_suites": {
+      "exemption": "Standard entrance height regulations do not apply"
+    }
+  },
+
+  "permitted_uses": {
+    "residential": "Living accommodation",
+    "home_occupation": "Permitted if suite is exclusive principal residence",
+    "short_term_rental": "Permitted if suite is exclusive principal residence (subject to separate STR regulations)"
+  },
+
+  "enforcement_notes": {
+    "building_permits": "Subject to Ontario Building Code compliance",
+    "fire_access": "Must meet Toronto Fire Services requirements", 
+    "minor_variance": "Emergency access requirements cannot be varied",
+    "existing_structures": "Special exemptions for lawfully existing ancillary buildings"
+  },
+
+  "summary_analysis": {
+    "adu_friendly_rating": "Moderate to High",
+    "key_benefits": [
+      "Multiple ADU types permitted",
+      "No parking requirements for ADUs",
+      "Allows construction before main building completion",
+      "Permits home occupation and STR in ADUs as principal residence",
+      "Generous height allowances with distance-based scaling"
+    ],
+    "main_restrictions": [
+      "Only one ADU type per property",
+      "Floor area must be smaller than main building",
+      "Specific lane access requirements for laneway suites",
+      "Emergency access requirements for garden suites",
+      "Location exclusions in downtown core for laneway suites"
+    ],
+    "notable_features": [
+      "Differentiation between lane-accessed and non-lane ADUs",
+      "Angular plane controls for building massing",
+      "Extensive landscaping requirements", 
+      "Special provisions for existing non-conforming structures",
+      "Geographic-specific regulations (Beaches area)"
+    ]
+  }
+}

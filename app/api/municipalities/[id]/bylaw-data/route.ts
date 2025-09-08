@@ -5,10 +5,10 @@ import type { MunicipalityBylawDataInput } from '../../../../../lib/municipality
 
 // Validation schemas
 const bylawDataSchema = z.object({
-  bylaw_ordinance_number: z.string().optional(),
-  effective_date: z.string().optional(),
-  contact_department: z.string().optional(),
-  contact_info: z.string().optional(),
+  bylaw_ordinance_number: z.union([z.string(), z.null()]).optional(),
+  effective_date: z.union([z.string(), z.null()]).optional(),
+  contact_department: z.union([z.string(), z.null()]).optional(),
+  contact_info: z.union([z.string(), z.null()]).optional(),
   permitted_zones: z.array(z.string()).default([]),
   adu_types_allowed: z.object({
     detached: z.boolean().default(false),
@@ -21,53 +21,53 @@ const bylawDataSchema = z.object({
   owner_occupancy_required: z.enum(['none', 'primary_residence', 'either_unit']).default('none'),
   
   // Lot requirements
-  min_lot_size_sqft: z.number().min(0).optional(),
-  min_lot_width_ft: z.number().min(0).optional(),
-  min_lot_depth_ft: z.number().min(0).optional(),
+  min_lot_size_sqft: z.union([z.number().min(0), z.null()]).optional(),
+  min_lot_width_ft: z.union([z.number().min(0), z.null()]).optional(),
+  min_lot_depth_ft: z.union([z.number().min(0), z.null()]).optional(),
   max_primary_dwellings: z.number().min(1).default(1),
   max_adus: z.number().min(0).default(1),
   max_total_units: z.number().min(1).default(2),
   
   // ADU size restrictions
-  detached_adu_min_size_sqft: z.number().min(0).optional(),
-  detached_adu_max_size_sqft: z.number().min(0).optional(),
-  detached_adu_max_percent_of_primary: z.number().min(0).max(100).optional(),
-  detached_adu_max_footprint_sqft: z.number().min(0).optional(),
-  attached_adu_min_size_sqft: z.number().min(0).optional(),
-  attached_adu_max_size_sqft: z.number().min(0).optional(),
-  attached_adu_max_percent_of_primary: z.number().min(0).max(100).optional(),
+  detached_adu_min_size_sqft: z.union([z.number().min(0), z.null()]).optional(),
+  detached_adu_max_size_sqft: z.union([z.number().min(0), z.null()]).optional(),
+  detached_adu_max_percent_of_primary: z.union([z.number().min(0).max(100), z.null()]).optional(),
+  detached_adu_max_footprint_sqft: z.union([z.number().min(0), z.null()]).optional(),
+  attached_adu_min_size_sqft: z.union([z.number().min(0), z.null()]).optional(),
+  attached_adu_max_size_sqft: z.union([z.number().min(0), z.null()]).optional(),
+  attached_adu_max_percent_of_primary: z.union([z.number().min(0).max(100), z.null()]).optional(),
   
   // Height limits
-  detached_adu_max_height_ft: z.number().min(0).optional(),
-  detached_adu_max_stories: z.number().min(1).optional(),
+  detached_adu_max_height_ft: z.union([z.number().min(0), z.null()]).optional(),
+  detached_adu_max_stories: z.union([z.number().min(1), z.null()]).optional(),
   attached_adu_height_rule: z.enum(['same_as_primary', 'custom']).default('same_as_primary'),
-  attached_adu_max_height_ft: z.number().min(0).optional(),
+  attached_adu_max_height_ft: z.union([z.number().min(0), z.null()]).optional(),
   
   // Setbacks
-  front_setback_min_ft: z.number().min(0).optional(),
+  front_setback_min_ft: z.union([z.number().min(0), z.null()]).optional(),
   front_setback_align_with_primary: z.boolean().default(false),
   front_setback_behind_primary: z.boolean().default(false),
-  side_setback_interior_ft: z.number().min(0).optional(),
-  side_setback_corner_street_ft: z.number().min(0).optional(),
-  side_setback_corner_interior_ft: z.number().min(0).optional(),
-  rear_setback_standard_ft: z.number().min(0).optional(),
-  rear_setback_with_alley_ft: z.number().min(0).optional(),
-  distance_from_primary_ft: z.number().min(0).optional(),
-  distance_from_other_structures_ft: z.number().min(0).optional(),
+  side_setback_interior_ft: z.union([z.number().min(0), z.null()]).optional(),
+  side_setback_corner_street_ft: z.union([z.number().min(0), z.null()]).optional(),
+  side_setback_corner_interior_ft: z.union([z.number().min(0), z.null()]).optional(),
+  rear_setback_standard_ft: z.union([z.number().min(0), z.null()]).optional(),
+  rear_setback_with_alley_ft: z.union([z.number().min(0), z.null()]).optional(),
+  distance_from_primary_ft: z.union([z.number().min(0), z.null()]).optional(),
+  distance_from_other_structures_ft: z.union([z.number().min(0), z.null()]).optional(),
   
   // Attached ADU setbacks
   attached_adu_setback_rule: z.enum(['same_as_primary', 'custom']).default('same_as_primary'),
-  attached_adu_setback_details: z.string().optional(),
+  attached_adu_setback_details: z.union([z.string(), z.null()]).optional(),
   
   // Lot coverage
-  max_lot_coverage_percent: z.number().min(0).max(100).optional(),
-  max_impervious_surface_percent: z.number().min(0).max(100).optional(),
-  min_landscaped_area_percent: z.number().min(0).max(100).optional(),
+  max_lot_coverage_percent: z.union([z.number().min(0).max(100), z.null()]).optional(),
+  max_impervious_surface_percent: z.union([z.number().min(0).max(100), z.null()]).optional(),
+  min_landscaped_area_percent: z.union([z.number().min(0).max(100), z.null()]).optional(),
   adu_coverage_counting: z.enum(['full', 'partial', 'exempt']).default('full'),
-  adu_coverage_explanation: z.string().optional(),
+  adu_coverage_explanation: z.union([z.string(), z.null()]).optional(),
   
   // Parking
-  adu_parking_spaces_required: z.number().min(0).default(1),
+  adu_parking_spaces_required: z.union([z.number().min(0), z.null()]).default(1),
   parking_configuration_allowed: z.object({
     uncovered: z.boolean().default(true),
     covered: z.boolean().default(true),
@@ -75,47 +75,47 @@ const bylawDataSchema = z.object({
     tandem: z.boolean().default(false),
     on_street: z.boolean().default(false),
   }).optional(),
-  parking_exemptions: z.record(z.union([z.number(), z.boolean()])).optional(),
-  driveway_min_width_ft: z.number().min(0).optional(),
-  driveway_max_width_ft: z.number().min(0).optional(),
-  driveway_material_requirements: z.string().optional(),
+  parking_exemptions: z.record(z.union([z.number(), z.boolean()])).nullable().optional(),
+  driveway_min_width_ft: z.union([z.number().min(0), z.null()]).optional(),
+  driveway_max_width_ft: z.union([z.number().min(0), z.null()]).optional(),
+  driveway_material_requirements: z.union([z.string(), z.null()]).optional(),
   
   // Design standards
   architectural_compatibility: z.enum(['must_match', 'compatible_materials', 'none']).default('none'),
-  design_requirements: z.record(z.union([z.boolean(), z.number()])).optional(),
+  design_requirements: z.record(z.union([z.boolean(), z.number()])).nullable().optional(),
   entrance_requirements: z.enum(['no_restriction', 'cannot_face_street', 'must_face_street', 'separate_required']).default('no_restriction'),
-  entrance_requirements_details: z.string().optional(),
+  entrance_requirements_details: z.union([z.string(), z.null()]).optional(),
   
   // Utilities
   utility_connections: z.enum(['may_share', 'separate_required', 'depends_on_size']).default('may_share'),
-  fire_access_pathway_width_ft: z.number().min(0).optional(),
-  fire_access_max_distance_ft: z.number().min(0).optional(),
-  fire_access_special_requirements: z.string().optional(),
+  fire_access_pathway_width_ft: z.union([z.number().min(0), z.null()]).optional(),
+  fire_access_max_distance_ft: z.union([z.number().min(0), z.null()]).optional(),
+  fire_access_special_requirements: z.union([z.string(), z.null()]).optional(),
   septic_sewer_requirements: z.enum(['public_sewer_required', 'septic_with_capacity_proof', 'other']).default('public_sewer_required'),
-  septic_sewer_details: z.string().optional(),
+  septic_sewer_details: z.union([z.string(), z.null()]).optional(),
   
   // Fees
   impact_fees: z.record(z.object({
     amount: z.number().min(0),
     per_sqft: z.boolean().default(false),
-  })).optional(),
+  })).nullable().optional(),
   permit_fees: z.record(z.object({
     amount: z.number().min(0),
     per_sqft: z.boolean().default(false),
-  })).optional(),
+  })).nullable().optional(),
   
   // Special conditions
   overlay_districts: z.record(z.object({
     applicable: z.boolean().default(false),
     requirements: z.string().optional(),
-  })).optional(),
-  deed_restrictions: z.record(z.union([z.boolean(), z.string()])).optional(),
+  })).nullable().optional(),
+  deed_restrictions: z.record(z.union([z.boolean(), z.string()])).nullable().optional(),
   
   // Additional
-  additional_notes: z.string().optional(),
-  source_documents: z.array(z.string()).optional(),
-  data_entry_completed_by: z.string().optional(),
-  reviewed_by: z.string().optional(),
+  additional_notes: z.union([z.string(), z.null()]).optional(),
+  source_documents: z.array(z.string()).nullable().optional(),
+  data_entry_completed_by: z.union([z.string(), z.null()]).optional(),
+  reviewed_by: z.union([z.string(), z.null()]).optional(),
 })
 
 // GET /api/municipalities/[id]/bylaw-data - Get bylaw data for municipality
@@ -293,13 +293,19 @@ export async function PUT(
 
     const body = await request.json()
     
+    console.log('PUT request body received:', body)
+    
+    // Use partial validation to allow updating only some fields
     const validation = bylawDataSchema.partial().safeParse(body)
     
     if (!validation.success) {
+      console.error('PUT validation failed:', validation.error.format())
+      console.error('Validation issues:', validation.error.issues)
       return NextResponse.json(
         { 
           error: 'Invalid bylaw data',
-          details: validation.error.format()
+          details: validation.error.format(),
+          issues: validation.error.issues
         },
         { status: 400 }
       )
@@ -321,10 +327,10 @@ export async function PUT(
       )
     }
 
-    // Update bylaw data
+    // Update bylaw data - validation.data will include null values
     const { data: bylawData, error: updateError } = await supabase
       .from('municipality_bylaw_data')
-      .update(validatedData)
+      .update(validation.data)
       .eq('municipality_id', municipalityId)
       .select()
       .single()

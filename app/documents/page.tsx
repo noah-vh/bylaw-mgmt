@@ -130,10 +130,11 @@ function DocumentsPageContent() {
     isAnalyzed: false,
     isFavorited: false
   })
+  const [documentSource, setDocumentSource] = useState<'all' | 'client' | 'scraped'>('client')
   
   // Use regular document search for browsing (when no search query)
   // Use 'basic' search type with empty query to get all documents
-  const documentSearch = useDocumentSearch('', 'basic', selectedCategory)
+  const documentSearch = useDocumentSearch('', 'basic', selectedCategory, documentSource)
   
   // Set initial page size for document search
   React.useEffect(() => {
@@ -148,11 +149,15 @@ function DocumentsPageContent() {
     ['documents'],
     pageSize,
     (currentPage - 1) * pageSize,
-    selectedMunicipalities
+    selectedMunicipalities,
+    [],
+    '',
+    false,
+    documentSource
   )
   
-  // Load municipalities for the filter dropdown
-  const { data: municipalitiesData } = useMunicipalities({ limit: 100 })
+  // Load municipalities for the filter dropdown with source filter
+  const { data: municipalitiesData } = useMunicipalities({ limit: 100, source: documentSource })
   
   // Calculate total documents across all municipalities (for "All" button when not searching)
   const overallTotalDocuments = React.useMemo(() => {
@@ -419,6 +424,26 @@ function DocumentsPageContent() {
                   )
                 })
               ) : null}
+            </SelectContent>
+          </Select>
+          
+          {/* Document Source Filter */}
+          <Select
+            value={documentSource}
+            onValueChange={(value: 'all' | 'client' | 'scraped') => {
+              setDocumentSource(value)
+              documentSearch.setSource(value)
+              globalSearch.updateSource(value)
+              setCurrentPage(1) // Reset to first page when changing source
+            }}
+          >
+            <SelectTrigger className="w-[180px] h-10">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="client">Client Documents Only</SelectItem>
+              <SelectItem value="scraped">Web Scraped Only</SelectItem>
+              <SelectItem value="all">All Documents</SelectItem>
             </SelectContent>
           </Select>
           

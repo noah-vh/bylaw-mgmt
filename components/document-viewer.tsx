@@ -105,7 +105,7 @@ export function DocumentViewer({
 }: DocumentViewerProps) {
   const [searchQuery, setSearchQuery] = React.useState(initialSearchQuery || "")
   const [highlightedContent, setHighlightedContent] = React.useState("")
-  const [activeTab, setActiveTab] = React.useState("content")
+  const [activeTab, setActiveTab] = React.useState("pdf")
   const [currentMatchIndex, setCurrentMatchIndex] = React.useState(0)
   const [totalMatches, setTotalMatches] = React.useState(0)
   const [matchPositions, setMatchPositions] = React.useState<number[]>([])
@@ -420,12 +420,50 @@ export function DocumentViewer({
                 )}
               </div>
               
-              {/* Tabs for Content and PDF Preview */}
+              {/* Tabs for PDF Preview and Content */}
               <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
                 <TabsList className="grid w-full grid-cols-2 mb-4">
-                  <TabsTrigger value="content">Document Content</TabsTrigger>
                   <TabsTrigger value="pdf">PDF Preview</TabsTrigger>
+                  <TabsTrigger value="content">Extracted Text</TabsTrigger>
                 </TabsList>
+                
+                <TabsContent value="pdf" className="flex-1 mt-0">
+                  <div className="border rounded-md bg-background overflow-hidden" style={{ height: 'calc(90vh - 260px)' }}>
+                    {document.url.includes('supabase.co') ? (
+                      <iframe
+                        src={document.url}
+                        className="w-full h-full"
+                        title={document.title}
+                        loading="lazy"
+                      />
+                    ) : (
+                      <object
+                        data={document.url}
+                        type="application/pdf"
+                        className="w-full h-full"
+                      >
+                        <embed 
+                          src={document.url}
+                          type="application/pdf"
+                          className="w-full h-full"
+                        />
+                        <div className="flex flex-col items-center justify-center h-full p-8 text-center max-w-md mx-auto">
+                          <FileText className="h-16 w-16 text-muted-foreground mb-4" />
+                          <h3 className="text-lg font-semibold mb-2">PDF Preview</h3>
+                          <p className="text-sm text-muted-foreground mb-4">
+                            Unable to display PDF inline. Your browser may not support embedded PDFs from this source.
+                          </p>
+                          <Button asChild size="lg">
+                            <a href={document.url} target="_blank" rel="noopener noreferrer">
+                              <ExternalLink className="mr-2 h-4 w-4" />
+                              Open PDF in New Tab
+                            </a>
+                          </Button>
+                        </div>
+                      </object>
+                    )}
+                  </div>
+                </TabsContent>
                 
                 <TabsContent value="content" className="flex-1 mt-0">
                   <div className="border rounded-md bg-background overflow-hidden" style={{ height: 'calc(90vh - 260px)' }}>
@@ -440,40 +478,60 @@ export function DocumentViewer({
                     </div>
                   </div>
                 </TabsContent>
-                
-                <TabsContent value="pdf" className="flex-1 mt-0">
-                  <div className="border rounded-md bg-background overflow-hidden flex items-center justify-center" style={{ height: 'calc(90vh - 260px)' }}>
-                    <div className="flex flex-col items-center justify-center p-8 text-center max-w-md">
+              </Tabs>
+            </>
+          ) : (
+            <div className="flex-1 flex flex-col">
+              {/* Show PDF preview directly when content is not extracted */}
+              <div className="flex items-center justify-between mb-4">
+                <div className="text-sm text-muted-foreground">
+                  Text content has not been extracted yet. Showing PDF preview below.
+                </div>
+                <Button variant="outline" size="sm" asChild>
+                  <a href={document.url} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="mr-2 h-4 w-4" />
+                    Open in New Tab
+                  </a>
+                </Button>
+              </div>
+              <div className="border rounded-md bg-background overflow-hidden flex-1" style={{ minHeight: '500px' }}>
+                {document.url.includes('supabase.co') ? (
+                  <iframe
+                    src={document.url}
+                    className="w-full h-full"
+                    title={document.title}
+                    style={{ minHeight: '500px' }}
+                    loading="lazy"
+                  />
+                ) : (
+                  <object
+                    data={document.url}
+                    type="application/pdf"
+                    className="w-full h-full"
+                    style={{ minHeight: '500px' }}
+                  >
+                    <embed 
+                      src={document.url}
+                      type="application/pdf"
+                      className="w-full h-full"
+                      style={{ minHeight: '500px' }}
+                    />
+                    <div className="flex flex-col items-center justify-center h-full p-8 text-center max-w-md mx-auto">
                       <FileText className="h-16 w-16 text-muted-foreground mb-4" />
-                      <h3 className="text-lg font-semibold mb-2">PDF Preview Not Available</h3>
+                      <h3 className="text-lg font-semibold mb-2">PDF Preview</h3>
                       <p className="text-sm text-muted-foreground mb-4">
-                        Due to security restrictions, PDFs cannot be previewed inline. 
-                        Click below to view the original document.
+                        Unable to display PDF inline. Your browser may not support embedded PDFs from this source.
                       </p>
                       <Button asChild size="lg">
                         <a href={document.url} target="_blank" rel="noopener noreferrer">
                           <ExternalLink className="mr-2 h-4 w-4" />
-                          View Original PDF
+                          Open PDF in New Tab
                         </a>
                       </Button>
                     </div>
-                  </div>
-                </TabsContent>
-              </Tabs>
-            </>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-12 text-center flex-1">
-              <FileText className="h-12 w-12 text-muted-foreground mb-4" />
-              <h3 className="font-semibold mb-2">Content not available</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                This document may not have been processed yet.
-              </p>
-              <Button variant="outline" asChild>
-                <a href={document.url} target="_blank" rel="noopener noreferrer">
-                  <Eye className="mr-2 h-4 w-4" />
-                  View Original PDF
-                </a>
-              </Button>
+                  </object>
+                )}
+              </div>
             </div>
           )}
         </div>

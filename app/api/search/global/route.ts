@@ -13,6 +13,7 @@ const globalSearchSchema = z.object({
   categories: z.array(z.string()).optional(), // For filtering by categories
   aduType: z.string().optional(), // For filtering by ADU type
   expandedSearch: z.string().optional().transform(val => val === 'true'), // For enabling synonym expansion
+  source: z.enum(['client', 'scraped', 'all']).optional(), // For filtering by document source
 })
 
 // GET /api/search/global - Global search across documents, municipalities, and keywords
@@ -33,6 +34,7 @@ export async function GET(request: NextRequest) {
       categories: categoriesParam.length > 0 ? categoriesParam : undefined,
       aduType: searchParams.get('aduType') || undefined,
       expandedSearch: searchParams.get('expandedSearch') || undefined,
+      source: searchParams.get('source') || undefined,
     }
     
     const validation = globalSearchSchema.safeParse(queryParams)
@@ -47,7 +49,7 @@ export async function GET(request: NextRequest) {
       )
     }
     
-    const { q: originalQuery, types, limit, offset, municipalityIds: rawMunicipalityIds, categories, aduType, expandedSearch } = validation.data
+    const { q: originalQuery, types, limit, offset, municipalityIds: rawMunicipalityIds, categories, aduType, expandedSearch, source } = validation.data
     
     // Use synonym expansion only if explicitly requested
     const expandedQuery = expandedSearch ? expandQuery(originalQuery) : originalQuery
@@ -92,10 +94,17 @@ export async function GET(request: NextRequest) {
           
           for (const term of synonymTerms) {
             try {
-              const { data: termCounts } = await supabase.rpc('get_search_municipality_counts_fast', {
-                search_query: term,
-                filter_municipality_ids: null
-              });
+              // Use source-aware function if source filter is specified
+              const { data: termCounts } = source && source !== 'all' 
+                ? await supabase.rpc('get_search_municipality_counts_with_source', {
+                    search_query: term,
+                    filter_municipality_ids: null,
+                    filter_source: source
+                  })
+                : await supabase.rpc('get_search_municipality_counts_fast', {
+                    search_query: term,
+                    filter_municipality_ids: null
+                  });
               
               if (termCounts) {
                 termCounts.forEach((count: any) => {
@@ -117,15 +126,37 @@ export async function GET(request: NextRequest) {
           
         } else {
           // Standard approach for non-synonym queries
-          const { data, error } = await supabase.rpc('get_search_municipality_counts_fast', {
-            search_query: query,
-            filter_municipality_ids: null  // Always pass null to get all municipality counts
-          });
-          
-          if (error) {
-            console.error('Municipality counts error:', error);
+          // Use the new function with source filter support if source is specified
+          if (source && source !== 'all') {
+            const { data, error } = await supabase.rpc('get_search_municipality_counts_with_source', {
+              search_query: query,
+              filter_municipality_ids: null,  // Always pass null to get all municipality counts
+              filter_source: source
+            });
+            
+            if (error) {
+              console.error('Municipality counts with source error:', error);
+              // Fallback to old function without source filter
+              const { data: fallbackData } = await supabase.rpc('get_search_municipality_counts_fast', {
+                search_query: query,
+                filter_municipality_ids: null
+              });
+              counts = fallbackData || [];
+            } else {
+              counts = data || [];
+            }
           } else {
-            counts = data || [];
+            // No source filter or 'all' - use original function
+            const { data, error } = await supabase.rpc('get_search_municipality_counts_fast', {
+              search_query: query,
+              filter_municipality_ids: null
+            });
+            
+            if (error) {
+              console.error('Municipality counts error:', error);
+            } else {
+              counts = data || [];
+            }
           }
         }
         
@@ -419,8 +450,13 @@ export async function GET(request: NextRequest) {
                 }
               }
 
-              // Filter results by categories and ADU type
+              // Filter results by source, categories and ADU type
               let filteredData = optimizedData
+              
+              // Filter by source
+              if (source && source !== 'all') {
+                filteredData = filteredData.filter((doc: any) => doc.document_source === source)
+              }
               
               // Filter by categories
               if (categories && categories.length > 0) {

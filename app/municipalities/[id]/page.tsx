@@ -200,6 +200,18 @@ export default function MunicipalityDetailPage() {
         throw new Error(`Failed to save settings: ${errorData.error || 'Unknown error'}`)
       }
 
+      // Clean bylaw form data - properly handle clearing of fields
+      const cleanedBylawForm = Object.entries(bylawForm).reduce((acc, [key, value]) => {
+        // Include the field if it has a value (including null for clearing)
+        // Skip only undefined and NaN
+        if (value !== undefined && !Number.isNaN(value)) {
+          (acc as any)[key] = value
+        }
+        return acc
+      }, {} as Partial<MunicipalityBylawDataInput>)
+      
+      console.log('Cleaned bylaw form being sent:', cleanedBylawForm)
+
       // Save bylaw data
       const isUpdate = data?.bylaw_data
       const bylawMethod = isUpdate ? 'PUT' : 'POST'
@@ -210,11 +222,18 @@ export default function MunicipalityDetailPage() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(bylawForm),
+        body: JSON.stringify(cleanedBylawForm),
       })
 
       if (!bylawResponse.ok) {
         const errorData = await bylawResponse.json()
+        console.error('Bylaw save error details:', errorData)
+        if (errorData.issues) {
+          const issueMessages = errorData.issues.map((issue: any) => 
+            `${issue.path.join('.')}: ${issue.message}`
+          ).join(', ')
+          throw new Error(`Failed to save bylaw data: ${issueMessages}`)
+        }
         throw new Error(`Failed to save bylaw data: ${errorData.error || 'Unknown error'}`)
       }
 
@@ -689,7 +708,7 @@ export default function MunicipalityDetailPage() {
                         type="number"
                         step="0.1"
                         value={bylawForm.front_setback_min_ft || ''}
-                        onChange={(e) => updateBylawForm('front_setback_min_ft', parseFloat(e.target.value))}
+                        onChange={(e) => updateBylawForm('front_setback_min_ft', e.target.value ? parseFloat(e.target.value) : null)}
                       />
                     ) : (
                       <div className="p-2 bg-muted rounded-md">
@@ -705,7 +724,7 @@ export default function MunicipalityDetailPage() {
                         type="number"
                         step="0.1"
                         value={bylawForm.rear_setback_standard_ft || ''}
-                        onChange={(e) => updateBylawForm('rear_setback_standard_ft', parseFloat(e.target.value))}
+                        onChange={(e) => updateBylawForm('rear_setback_standard_ft', e.target.value ? parseFloat(e.target.value) : null)}
                       />
                     ) : (
                       <div className="p-2 bg-muted rounded-md">
@@ -721,7 +740,7 @@ export default function MunicipalityDetailPage() {
                         type="number"
                         step="0.1"
                         value={bylawForm.side_setback_interior_ft || ''}
-                        onChange={(e) => updateBylawForm('side_setback_interior_ft', parseFloat(e.target.value))}
+                        onChange={(e) => updateBylawForm('side_setback_interior_ft', e.target.value ? parseFloat(e.target.value) : null)}
                       />
                     ) : (
                       <div className="p-2 bg-muted rounded-md">
@@ -743,7 +762,7 @@ export default function MunicipalityDetailPage() {
                         id="min_size"
                         type="number"
                         value={bylawForm.detached_adu_min_size_sqft || ''}
-                        onChange={(e) => updateBylawForm('detached_adu_min_size_sqft', parseInt(e.target.value))}
+                        onChange={(e) => updateBylawForm('detached_adu_min_size_sqft', e.target.value ? parseInt(e.target.value) : null)}
                       />
                     ) : (
                       <div className="p-2 bg-muted rounded-md">
@@ -758,7 +777,7 @@ export default function MunicipalityDetailPage() {
                         id="max_size"
                         type="number"
                         value={bylawForm.detached_adu_max_size_sqft || ''}
-                        onChange={(e) => updateBylawForm('detached_adu_max_size_sqft', parseInt(e.target.value))}
+                        onChange={(e) => updateBylawForm('detached_adu_max_size_sqft', e.target.value ? parseInt(e.target.value) : null)}
                       />
                     ) : (
                       <div className="p-2 bg-muted rounded-md">
@@ -774,7 +793,7 @@ export default function MunicipalityDetailPage() {
                         type="number"
                         step="0.1"
                         value={bylawForm.detached_adu_max_height_ft || ''}
-                        onChange={(e) => updateBylawForm('detached_adu_max_height_ft', parseFloat(e.target.value))}
+                        onChange={(e) => updateBylawForm('detached_adu_max_height_ft', e.target.value ? parseFloat(e.target.value) : null)}
                       />
                     ) : (
                       <div className="p-2 bg-muted rounded-md">
@@ -791,7 +810,7 @@ export default function MunicipalityDetailPage() {
                         step="0.1"
                         max="100"
                         value={bylawForm.max_lot_coverage_percent || ''}
-                        onChange={(e) => updateBylawForm('max_lot_coverage_percent', parseFloat(e.target.value))}
+                        onChange={(e) => updateBylawForm('max_lot_coverage_percent', e.target.value ? parseFloat(e.target.value) : null)}
                       />
                     ) : (
                       <div className="p-2 bg-muted rounded-md">
@@ -813,7 +832,7 @@ export default function MunicipalityDetailPage() {
                       type="number"
                       min="0"
                       value={bylawForm.adu_parking_spaces_required || 1}
-                      onChange={(e) => updateBylawForm('adu_parking_spaces_required', parseInt(e.target.value))}
+                      onChange={(e) => updateBylawForm('adu_parking_spaces_required', e.target.value ? parseInt(e.target.value) : null)}
                     />
                   ) : (
                     <div className="p-2 bg-muted rounded-md">

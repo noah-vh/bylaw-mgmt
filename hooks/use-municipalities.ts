@@ -21,7 +21,7 @@ const municipalityKeys = {
 }
 
 // Fetch municipalities list
-async function fetchMunicipalities(params: MunicipalitySearchParams = {}): Promise<PaginatedResponse<Municipality>> {
+async function fetchMunicipalities(params: MunicipalitySearchParams & { source?: 'all' | 'client' | 'scraped' } = {}): Promise<PaginatedResponse<Municipality>> {
   const searchParams = new URLSearchParams()
   
   if (params.page) searchParams.set('page', params.page.toString())
@@ -32,6 +32,7 @@ async function fetchMunicipalities(params: MunicipalitySearchParams = {}): Promi
   if (params.scheduledOnly) searchParams.set('scheduledOnly', 'true')
   if (params.sort) searchParams.set('sort', params.sort)
   if (params.order) searchParams.set('order', params.order)
+  if (params.source) searchParams.set('source', params.source)
 
   const response = await fetch(`/api/municipalities?${searchParams}`)
   
@@ -151,9 +152,9 @@ async function deleteMunicipality(id: MunicipalityId): Promise<void> {
 }
 
 // Custom hooks
-export function useMunicipalities(params: MunicipalitySearchParams = {}) {
+export function useMunicipalities(params: MunicipalitySearchParams & { source?: 'all' | 'client' | 'scraped' } = {}) {
   return useQuery({
-    queryKey: [...municipalityKeys.list(params), 'v2'], // Force cache invalidation with version
+    queryKey: [...municipalityKeys.list(params), params.source || 'client', 'v3'], // Include source in key for proper refetch
     queryFn: () => fetchMunicipalities(params),
     staleTime: 0, // Disable cache temporarily to ensure fresh data
   })

@@ -46,11 +46,20 @@ export async function GET(request: NextRequest) {
     const scheduledOnly = url.searchParams.get('scheduledOnly') === 'true'
     const sortBy = url.searchParams.get('sort') || 'name'
     const sortOrder = url.searchParams.get('order') || 'asc'
+    const source = url.searchParams.get('source') || 'client' // Default to client
 
-    // Build query with row-level security - simple query first
+    // Build query with row-level security - include bylaw data
     let query = supabase
       .from('municipalities')
-      .select('*', { count: 'exact' })
+      .select(`
+        *,
+        municipality_bylaw_data (
+          id,
+          bylaw_ordinance_number,
+          effective_date,
+          additional_notes
+        )
+      `, { count: 'exact' })
 
     // Apply filters
     if (search) {
@@ -98,8 +107,9 @@ export async function GET(request: NextRequest) {
     if (municipalityIds.length > 0) {
       // Use RPC or raw SQL for proper aggregation to avoid row limits
       const { data: counts, error: countError } = await supabase
-        .rpc('get_document_counts_by_municipality', {
-          municipality_ids: municipalityIds
+        .rpc('get_document_counts_by_municipality_and_source', {
+          municipality_ids: municipalityIds,
+          source_filter: source
         })
       
       if (countError) {
@@ -108,10 +118,17 @@ export async function GET(request: NextRequest) {
         console.log('Using fallback: parallel count queries for', municipalityIds.length, 'municipalities')
         
         const countPromises = municipalityIds.map(async (muniId) => {
-          const { count, error } = await supabase
+          let countQuery = supabase
             .from('pdf_documents')
             .select('*', { count: 'exact', head: true })
             .eq('municipality_id', muniId)
+          
+          // Apply source filter if not 'all'
+          if (source && source !== 'all') {
+            countQuery = countQuery.eq('document_source', source)
+          }
+          
+          const { count, error } = await countQuery
           
           if (error) {
             console.error(`Error counting docs for municipality ${muniId}:`, error.message)

@@ -481,11 +481,10 @@ function TableView({ data, isLoading, selectedMunicipalities, onSelectAll, onSel
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center">
-                    {(municipality as any).bylaw_data ? (
-                      <Badge variant="secondary" className="text-xs">
-                        <Shield className="h-3 w-3 mr-1" />
-                        Configured
-                      </Badge>
+                    {(municipality as any).municipality_bylaw_data?.length > 0 ? (
+                      <span className="text-xs">
+                        {(municipality as any).municipality_bylaw_data[0].bylaw_ordinance_number ? 'Complete' : 'Partial'}
+                      </span>
                     ) : (
                       <span className="text-xs text-muted-foreground">Not configured</span>
                     )}
@@ -610,11 +609,10 @@ function GridView({ data, isLoading, onEdit, onDelete }: GridViewProps) {
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Bylaw Data:</span>
-                {(municipality as any).bylaw_data ? (
-                  <Badge variant="secondary" className="text-xs">
-                    <Shield className="h-3 w-3 mr-1" />
-                    Configured
-                  </Badge>
+                {(municipality as any).municipality_bylaw_data?.length > 0 ? (
+                  <span className="text-xs">
+                    {(municipality as any).municipality_bylaw_data[0].bylaw_ordinance_number ? 'Complete' : 'Partial'}
+                  </span>
                 ) : (
                   <span className="text-xs text-muted-foreground">Not configured</span>
                 )}
@@ -870,6 +868,13 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
 
       if (!bylawResponse.ok) {
         const errorData = await bylawResponse.json()
+        console.error('Bylaw save error details:', errorData)
+        if (errorData.issues) {
+          const issueMessages = errorData.issues.map((issue: any) => 
+            `${issue.path.join('.')}: ${issue.message}`
+          ).join(', ')
+          throw new Error(`Failed to save bylaw data: ${issueMessages}`)
+        }
         throw new Error(`Failed to save bylaw data: ${errorData.error || 'Unknown error'}`)
       }
 
@@ -1043,7 +1048,7 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
                     id="min_size"
                     type="number"
                     value={bylawForm.detached_adu_min_size_sqft || ''}
-                    onChange={(e) => updateBylawForm('detached_adu_min_size_sqft', parseInt(e.target.value))}
+                    onChange={(e) => updateBylawForm('detached_adu_min_size_sqft', e.target.value ? parseInt(e.target.value) : null)}
                   />
                 </div>
                 <div className="space-y-2">
@@ -1052,7 +1057,7 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
                     id="max_size"
                     type="number"
                     value={bylawForm.detached_adu_max_size_sqft || ''}
-                    onChange={(e) => updateBylawForm('detached_adu_max_size_sqft', parseInt(e.target.value))}
+                    onChange={(e) => updateBylawForm('detached_adu_max_size_sqft', e.target.value ? parseInt(e.target.value) : null)}
                   />
                 </div>
               </div>
@@ -1068,7 +1073,7 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
                     id="front_setback"
                     type="number"
                     value={bylawForm.front_setback_min_ft || ''}
-                    onChange={(e) => updateBylawForm('front_setback_min_ft', parseFloat(e.target.value))}
+                    onChange={(e) => updateBylawForm('front_setback_min_ft', e.target.value ? parseFloat(e.target.value) : null)}
                     placeholder="e.g., 20"
                   />
                 </div>
@@ -1078,7 +1083,7 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
                     id="rear_setback"
                     type="number"
                     value={bylawForm.rear_setback_standard_ft || ''}
-                    onChange={(e) => updateBylawForm('rear_setback_standard_ft', parseFloat(e.target.value))}
+                    onChange={(e) => updateBylawForm('rear_setback_standard_ft', e.target.value ? parseFloat(e.target.value) : null)}
                     placeholder="e.g., 5"
                   />
                 </div>
@@ -1088,7 +1093,7 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
                     id="side_setback"
                     type="number"
                     value={bylawForm.side_setback_interior_ft || ''}
-                    onChange={(e) => updateBylawForm('side_setback_interior_ft', parseFloat(e.target.value))}
+                    onChange={(e) => updateBylawForm('side_setback_interior_ft', e.target.value ? parseFloat(e.target.value) : null)}
                     placeholder="e.g., 4"
                   />
                 </div>
@@ -1100,7 +1105,7 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
                     id="rear_setback_alley"
                     type="number"
                     value={bylawForm.rear_setback_with_alley_ft || ''}
-                    onChange={(e) => updateBylawForm('rear_setback_with_alley_ft', parseFloat(e.target.value))}
+                    onChange={(e) => updateBylawForm('rear_setback_with_alley_ft', e.target.value ? parseFloat(e.target.value) : null)}
                     placeholder="e.g., 3"
                   />
                 </div>
@@ -1110,7 +1115,7 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
                     id="side_setback_corner"
                     type="number"
                     value={bylawForm.side_setback_corner_street_ft || ''}
-                    onChange={(e) => updateBylawForm('side_setback_corner_street_ft', parseFloat(e.target.value))}
+                    onChange={(e) => updateBylawForm('side_setback_corner_street_ft', e.target.value ? parseFloat(e.target.value) : null)}
                     placeholder="e.g., 10"
                   />
                 </div>
@@ -1120,7 +1125,7 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
                     id="distance_primary"
                     type="number"
                     value={bylawForm.distance_from_primary_ft || ''}
-                    onChange={(e) => updateBylawForm('distance_from_primary_ft', parseFloat(e.target.value))}
+                    onChange={(e) => updateBylawForm('distance_from_primary_ft', e.target.value ? parseFloat(e.target.value) : null)}
                     placeholder="e.g., 10"
                   />
                 </div>
@@ -1137,7 +1142,7 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
                     id="min_lot_size"
                     type="number"
                     value={bylawForm.min_lot_size_sqft || ''}
-                    onChange={(e) => updateBylawForm('min_lot_size_sqft', parseInt(e.target.value))}
+                    onChange={(e) => updateBylawForm('min_lot_size_sqft', e.target.value ? parseInt(e.target.value) : null)}
                     placeholder="e.g., 5000"
                   />
                 </div>
@@ -1147,7 +1152,7 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
                     id="min_lot_width"
                     type="number"
                     value={bylawForm.min_lot_width_ft || ''}
-                    onChange={(e) => updateBylawForm('min_lot_width_ft', parseFloat(e.target.value))}
+                    onChange={(e) => updateBylawForm('min_lot_width_ft', e.target.value ? parseFloat(e.target.value) : null)}
                     placeholder="e.g., 50"
                   />
                 </div>
@@ -1157,7 +1162,7 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
                     id="min_lot_depth"
                     type="number"
                     value={bylawForm.min_lot_depth_ft || ''}
-                    onChange={(e) => updateBylawForm('min_lot_depth_ft', parseFloat(e.target.value))}
+                    onChange={(e) => updateBylawForm('min_lot_depth_ft', e.target.value ? parseFloat(e.target.value) : null)}
                     placeholder="e.g., 100"
                   />
                 </div>
@@ -1170,7 +1175,7 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
                     type="number"
                     min="1"
                     value={bylawForm.max_adus || 1}
-                    onChange={(e) => updateBylawForm('max_adus', parseInt(e.target.value))}
+                    onChange={(e) => updateBylawForm('max_adus', e.target.value ? parseInt(e.target.value) : null)}
                   />
                 </div>
                 <div className="space-y-2">
@@ -1180,7 +1185,7 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
                     type="number"
                     min="2"
                     value={bylawForm.max_total_units || 2}
-                    onChange={(e) => updateBylawForm('max_total_units', parseInt(e.target.value))}
+                    onChange={(e) => updateBylawForm('max_total_units', e.target.value ? parseInt(e.target.value) : null)}
                   />
                 </div>
                 <div className="space-y-2">
@@ -1191,7 +1196,7 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
                     min="0"
                     max="100"
                     value={bylawForm.max_lot_coverage_percent || ''}
-                    onChange={(e) => updateBylawForm('max_lot_coverage_percent', parseFloat(e.target.value))}
+                    onChange={(e) => updateBylawForm('max_lot_coverage_percent', e.target.value ? parseFloat(e.target.value) : null)}
                     placeholder="e.g., 35"
                   />
                 </div>
@@ -1208,7 +1213,7 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
                   type="number"
                   min="0"
                   value={bylawForm.adu_parking_spaces_required || 1}
-                  onChange={(e) => updateBylawForm('adu_parking_spaces_required', parseInt(e.target.value))}
+                  onChange={(e) => updateBylawForm('adu_parking_spaces_required', e.target.value ? parseInt(e.target.value) : null)}
                 />
               </div>
             </div>
@@ -1223,7 +1228,7 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
                     id="max_height"
                     type="number"
                     value={bylawForm.detached_adu_max_height_ft || ''}
-                    onChange={(e) => updateBylawForm('detached_adu_max_height_ft', parseFloat(e.target.value))}
+                    onChange={(e) => updateBylawForm('detached_adu_max_height_ft', e.target.value ? parseFloat(e.target.value) : null)}
                     placeholder="e.g., 25"
                   />
                 </div>
@@ -1234,7 +1239,7 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
                     type="number"
                     min="1"
                     value={bylawForm.detached_adu_max_stories || ''}
-                    onChange={(e) => updateBylawForm('detached_adu_max_stories', parseInt(e.target.value))}
+                    onChange={(e) => updateBylawForm('detached_adu_max_stories', e.target.value ? parseInt(e.target.value) : null)}
                     placeholder="e.g., 2"
                   />
                 </div>

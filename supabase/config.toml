@@ -1,0 +1,11 @@
+# Supabase Edge Functions Configuration
+
+# Disable JWT verification for all API functions since ChatGPT doesn't send JWT tokens
+[functions.get-municipality]
+verify_jwt = false
+
+[functions.search-documents]
+verify_jwt = false
+
+[functions.search-content]
+verify_jwt = false

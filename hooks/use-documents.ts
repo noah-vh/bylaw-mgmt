@@ -46,6 +46,7 @@ async function fetchDocuments(params: DocumentSearchParams = {}): Promise<Pagina
   if (params.sort) searchParams.set('sort', params.sort)
   if (params.order) searchParams.set('order', params.order)
   if ((params as any).category) searchParams.set('category', (params as any).category)
+  if ((params as any).source) searchParams.set('source', (params as any).source)
 
   const response = await fetch(`/api/documents?${searchParams}`)
   
@@ -250,7 +251,7 @@ export function useToggleDocumentFavorite() {
 }
 
 // Document search hook
-export function useDocumentSearch(initialQuery: string = '', initialSearchType: 'basic' | 'fulltext' = 'basic', initialCategory: string | null = null) {
+export function useDocumentSearch(initialQuery: string = '', initialSearchType: 'basic' | 'fulltext' = 'basic', initialCategory: string | null = null, initialSource: 'all' | 'client' | 'scraped' = 'client') {
   const [searchParams, setSearchParams] = useState<DocumentSearchParams>({
     page: 1,
     limit: 50, // Higher limit for better search results
@@ -259,7 +260,8 @@ export function useDocumentSearch(initialQuery: string = '', initialSearchType: 
     sort: 'date_found',
     order: 'desc',
     category: initialCategory || undefined,
-  } as DocumentSearchParams)
+    source: initialSource,
+  } as DocumentSearchParams & { source?: 'all' | 'client' | 'scraped' })
 
   const query = useDocuments(searchParams)
 
@@ -305,6 +307,7 @@ export function useDocumentSearch(initialQuery: string = '', initialSearchType: 
     setLimit: (limit: number) => updateSearch({ limit }),
     setSorting: (sort: string, order: 'asc' | 'desc') => updateSearch({ sort, order }),
     setCategory: (category: string | undefined) => updateSearch({ category }),
+    setSource: (source: 'all' | 'client' | 'scraped' | undefined) => updateSearch({ source }),
   }
 }
 

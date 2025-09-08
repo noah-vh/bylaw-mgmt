@@ -13,6 +13,7 @@ const getDocumentsQuerySchema = z.object({
   isAnalyzed: z.string().optional().transform(val => val === 'true' ? true : val === 'false' ? false : undefined),
   isFavorited: z.string().optional().transform(val => val === 'true' ? true : val === 'false' ? false : undefined),
   category: z.string().optional(),
+  source: z.enum(['client', 'scraped', 'all']).optional().default('all'),
   sort: z.enum(['title', 'date_found', 'last_checked', 'file_size', 'municipality_name', 'relevance_score', 'relevance']).optional().default('date_found'),
   order: z.enum(['asc', 'desc']).optional().default('desc'),
 })
@@ -48,6 +49,7 @@ export async function GET(request: NextRequest) {
       isAnalyzed, 
       isFavorited, 
       category,
+      source,
       sort: sortBy, 
       order: sortOrder 
     } = validation.data
@@ -88,6 +90,11 @@ export async function GET(request: NextRequest) {
       console.log('Documents API - search conditions:', conditions)
       
       searchQuery = searchQuery.or(conditions.join(','))
+      
+      // Apply source filter
+      if (source && source !== 'all') {
+        searchQuery = searchQuery.eq('document_source', source)
+      }
       
       // Apply municipality filter
       if (municipalityId) {
@@ -306,7 +313,8 @@ export async function GET(request: NextRequest) {
             isAduRelevant,
             isAnalyzed,
             isFavorited,
-            category
+            category,
+            source
           }
         }
       }
@@ -322,6 +330,11 @@ export async function GET(request: NextRequest) {
     // Apply filters
     if (search && searchType === 'basic') {
       query = query.or(`title.ilike.%${search}%,filename.ilike.%${search}%`)
+    }
+
+    // Apply source filter
+    if (source && source !== 'all') {
+      query = query.eq('document_source', source)
     }
 
     if (municipalityId) {
@@ -459,7 +472,8 @@ export async function GET(request: NextRequest) {
           isAduRelevant,
           isAnalyzed,
           isFavorited,
-          category
+          category,
+          source
         }
       }
     }

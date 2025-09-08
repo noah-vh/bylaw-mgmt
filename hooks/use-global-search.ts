@@ -69,7 +69,8 @@ async function fetchGlobalSearch(
   municipalityIds: number[] = [],
   categories: string[] = [],
   aduType: string = '',
-  expandedSearch: boolean = false
+  expandedSearch: boolean = false,
+  source: 'all' | 'client' | 'scraped' = 'all'
 ): Promise<GlobalSearchResponse> {
   const searchParams = new URLSearchParams()
   searchParams.set('q', query)
@@ -80,6 +81,7 @@ async function fetchGlobalSearch(
   categories.forEach(category => searchParams.append('categories[]', category))
   if (aduType) searchParams.set('aduType', aduType)
   if (expandedSearch) searchParams.set('expandedSearch', 'true')
+  if (source !== 'all') searchParams.set('source', source)
   
 
   const response = await fetch(`/api/search/global?${searchParams}`)
@@ -101,8 +103,8 @@ async function fetchGlobalSearch(
 // Query key factory for global search
 const globalSearchKeys = {
   all: ['global-search'] as const,
-  search: (query: string, types: string[], limit: number, offset: number, municipalityIds: number[], categories: string[], aduType: string, expandedSearch: boolean) => 
-    [...globalSearchKeys.all, 'v7', query, types, limit, offset, municipalityIds, categories, aduType, expandedSearch] as const,
+  search: (query: string, types: string[], limit: number, offset: number, municipalityIds: number[], categories: string[], aduType: string, expandedSearch: boolean, source: string) => 
+    [...globalSearchKeys.all, 'v8', query, types, limit, offset, municipalityIds, categories, aduType, expandedSearch, source] as const,
 }
 
 // Global search hook
@@ -114,7 +116,8 @@ export function useGlobalSearch(
   initialMunicipalityIds: number[] = [],
   initialCategories: string[] = [],
   initialAduType: string = '',
-  initialExpandedSearch: boolean = false
+  initialExpandedSearch: boolean = false,
+  initialSource: 'all' | 'client' | 'scraped' = 'client'
 ) {
   const [query, setQuery] = useState(initialQuery)
   const [searchTypes, setSearchTypes] = useState(initialTypes)
@@ -124,12 +127,13 @@ export function useGlobalSearch(
   const [categories, setCategories] = useState(initialCategories)
   const [aduType, setAduType] = useState(initialAduType)
   const [expandedSearch, setExpandedSearch] = useState(initialExpandedSearch)
+  const [source, setSource] = useState(initialSource)
 
   const searchQuery = useQuery({
-    queryKey: globalSearchKeys.search(query, searchTypes, limit, offset, municipalityIds, categories, aduType, expandedSearch),
+    queryKey: globalSearchKeys.search(query, searchTypes, limit, offset, municipalityIds, categories, aduType, expandedSearch, source),
     queryFn: () => {
-      console.log('🚀 FETCH TRIGGERED:', { query, municipalityIds, limit, offset, expandedSearch })
-      return fetchGlobalSearch(query, searchTypes, limit, offset, municipalityIds, categories, aduType, expandedSearch)
+      console.log('🚀 FETCH TRIGGERED:', { query, municipalityIds, limit, offset, expandedSearch, source })
+      return fetchGlobalSearch(query, searchTypes, limit, offset, municipalityIds, categories, aduType, expandedSearch, source)
     },
     enabled: query.length >= 2, // Only search with 2+ characters
     staleTime: 1000 * 60 * 2, // 2 minutes cache - increased from 30 seconds
@@ -174,6 +178,11 @@ export function useGlobalSearch(
     setExpandedSearch(enabled)
     setOffset(0) // Reset to first page when changing search type
   }
+
+  const updateSource = (newSource: 'all' | 'client' | 'scraped') => {
+    setSource(newSource)
+    setOffset(0) // Reset pagination when changing source
+  }
   
   const nextPage = () => {
     setOffset(prev => prev + limit)
@@ -205,6 +214,7 @@ export function useGlobalSearch(
     updateCategories,
     updateAduType,
     updateExpandedSearch,
+    updateSource,
     nextPage,
     prevPage,
     clearSearch,

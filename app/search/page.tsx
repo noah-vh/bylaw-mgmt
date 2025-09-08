@@ -67,6 +67,7 @@ function SearchPageContent() {
   const [selectedCategories, setSelectedCategories] = useState<string[]>([])
   const [selectedAduType, setSelectedAduType] = useState<string>('')
   const [expandedSearch, setExpandedSearch] = useState(false)
+  const [documentSource, setDocumentSource] = useState<'all' | 'client' | 'scraped'>('client')
   
   const handleOpenDocument = async (document: PdfDocument & { municipality?: { name: string } }) => {
     // If document lacks content_text, fetch complete document data
@@ -148,8 +149,9 @@ function SearchPageContent() {
     aduType: searchAduType,
     updateCategories,
     updateAduType,
-    updateExpandedSearch
-  } = useGlobalSearch(initialQuery, ['documents', 'municipalities'], 50, 0, [], [], '', expandedSearch)
+    updateExpandedSearch,
+    updateSource
+  } = useGlobalSearch(initialQuery, ['documents', 'municipalities'], 50, 0, [], [], '', expandedSearch, documentSource)
 
   // Advanced document search - kept for potential future use but not currently used
   // const {
@@ -161,7 +163,7 @@ function SearchPageContent() {
   //   setSearchType
   // } = useAdvancedDocumentSearch()
 
-  const { data: municipalitiesData } = useMunicipalities({ limit: 100 })
+  const { data: municipalitiesData } = useMunicipalities({ limit: 100, source: documentSource })
   const { categories, loading: categoriesLoading } = useCategories()
 
   // Initialize search from URL params
@@ -263,6 +265,8 @@ function SearchPageContent() {
     setSelectedAduType('')
     setExpandedSearch(false)
     updateExpandedSearch(false)
+    setDocumentSource('all')
+    updateSource('all')
   }
 
   const activeFiltersCount = (municipalityIds.length > 0 ? 1 : 0) + 
@@ -271,7 +275,8 @@ function SearchPageContent() {
     (dateRange.from || dateRange.to ? 1 : 0) +
     (selectedCategories.length > 0 ? 1 : 0) +
     (selectedAduType ? 1 : 0) +
-    (expandedSearch ? 1 : 0)
+    (expandedSearch ? 1 : 0) +
+    (documentSource !== 'all' ? 1 : 0)
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -656,6 +661,48 @@ function SearchPageContent() {
                       </Button>
                     )
                   })}
+                </div>
+              </div>
+
+              {/* Document Source Filter */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-sm font-medium">Document source:</span>
+                </div>
+                <div className="flex flex-wrap gap-2 items-center">
+                  <Button
+                    variant={documentSource === 'all' ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => {
+                      setDocumentSource('all')
+                      updateSource('all')
+                    }}
+                    className="h-8"
+                  >
+                    All Documents
+                  </Button>
+                  <Button
+                    variant={documentSource === 'client' ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => {
+                      setDocumentSource('client')
+                      updateSource('client')
+                    }}
+                    className="h-8"
+                  >
+                    Client Documents Only
+                  </Button>
+                  <Button
+                    variant={documentSource === 'scraped' ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => {
+                      setDocumentSource('scraped')
+                      updateSource('scraped')
+                    }}
+                    className="h-8"
+                  >
+                    Web Scraped Only
+                  </Button>
                 </div>
               </div>
 
