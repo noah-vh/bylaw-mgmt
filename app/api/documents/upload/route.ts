@@ -3,6 +3,10 @@ import { supabase } from '../../../../lib/supabase'
 import { supabaseAdmin } from '../../../../lib/supabase-admin'
 import { z } from 'zod'
 
+// Configure route segment to increase body size limit for file uploads
+export const maxDuration = 60 // Maximum function duration (60 seconds)
+export const dynamic = 'force-dynamic' // Ensure the route is always dynamic
+
 // Validation schema for form data
 const uploadSchema = z.object({
   title: z.string().min(1, 'Title is required'),
@@ -18,7 +22,26 @@ export async function POST(request: NextRequest) {
   
   try {
     console.log('Upload API called at', new Date().toISOString())
-    const formData = await request.formData()
+    
+    // Check content length header
+    const contentLength = request.headers.get('content-length')
+    if (contentLength && parseInt(contentLength) > 50 * 1024 * 1024) {
+      return NextResponse.json(
+        { error: 'File size exceeds maximum allowed size of 50MB' },
+        { status: 413 }
+      )
+    }
+    
+    let formData
+    try {
+      formData = await request.formData()
+    } catch (parseError) {
+      console.error('Error parsing form data:', parseError)
+      return NextResponse.json(
+        { error: 'Request too large or invalid form data. Maximum file size is 50MB.' },
+        { status: 413 }
+      )
+    }
     const file = formData.get('file') as File | null
     const title = formData.get('title') as string
     const municipalityIdStr = formData.get('municipality_id') as string

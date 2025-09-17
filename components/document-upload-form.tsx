@@ -144,6 +144,21 @@ export function DocumentUploadForm({ municipalities, onUploadSuccess, onCancel }
         body: formData,
       })
 
+      // Check if we got a non-JSON response (like HTML error page)
+      const contentType = response.headers.get('content-type')
+      if (!contentType || !contentType.includes('application/json')) {
+        console.error('Non-JSON response received:', response.status, response.statusText)
+        
+        // Handle specific error codes
+        if (response.status === 413) {
+          throw new Error('File too large. Maximum file size is 50MB.')
+        } else if (response.status === 502 || response.status === 504) {
+          throw new Error('Server timeout. The file may be too large or the server is busy. Please try a smaller file.')
+        }
+        
+        throw new Error(`Server error (${response.status}): ${response.statusText}`)
+      }
+
       const result = await response.json()
 
       if (!response.ok) {
