@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import { Inter, Montserrat } from "next/font/google"
 import "./globals.css"
+import { Analytics } from '@vercel/analytics/next'
 
 import { ThemeProvider } from "@/components/providers/theme-provider"
 import { Header } from "@/components/layout/header"
@@ -54,6 +55,7 @@ export default function RootLayout({
             <Toaster />
           </Providers>
         </ThemeProvider>
+        <Analytics />
       </body>
     </html>
   )
