@@ -72,6 +72,12 @@ const { chromium } = require('playwright');
   console.log('\n7. Attempting to save WITHOUT making changes (testing existing data)...');
   const saveButton = page.locator('[role="dialog"] button').filter({ hasText: /Save/i }).first();
 
+  // Listen for success toast/message before it disappears
+  const successPromise = page.waitForSelector('text=/saved successfully/i', {
+    state: 'visible',
+    timeout: 5000
+  }).catch(() => null);
+
   if (await saveButton.count() > 0) {
     await saveButton.click();
     console.log('   Clicked save button');
@@ -81,7 +87,15 @@ const { chromium } = require('playwright');
 
   // Wait for response
   console.log('8. Waiting for server response...');
-  await page.waitForTimeout(3000);
+
+  // Check if success message appeared
+  const successElement = await successPromise;
+  if (successElement) {
+    const successText = await successElement.textContent();
+    console.log(`   ✅ Success message detected: "${successText}"`);
+  }
+
+  await page.waitForTimeout(2000);
 
   // Check for any error messages
   console.log('9. Checking for validation errors...');

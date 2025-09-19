@@ -17,8 +17,8 @@ const bylawDataSchema = z.object({
     basement_conversion: z.boolean().default(false),
     interior: z.boolean().default(false),
   }).default({}),
-  permit_type: z.enum(['by_right', 'special_permit', 'conditional_use', 'variance']).optional(),
-  owner_occupancy_required: z.enum(['none', 'primary_residence', 'either_unit']).optional(),
+  permit_type: z.enum(['by_right', 'special_permit', 'conditional_use', 'variance']).nullable().optional(),
+  owner_occupancy_required: z.enum(['none', 'primary_residence', 'either_unit']).nullable().optional(),
   
   // Lot requirements
   min_lot_size_sqft: z.union([z.number().min(0), z.null()]).optional(),
@@ -40,7 +40,7 @@ const bylawDataSchema = z.object({
   // Height limits
   detached_adu_max_height_ft: z.union([z.number().min(0), z.null()]).optional(),
   detached_adu_max_stories: z.union([z.number().min(1), z.null()]).optional(),
-  attached_adu_height_rule: z.enum(['same_as_primary', 'custom']).optional(),
+  attached_adu_height_rule: z.enum(['same_as_primary', 'custom']).nullable().optional(),
   attached_adu_max_height_ft: z.union([z.number().min(0), z.null()]).optional(),
   
   // Setbacks
@@ -56,14 +56,14 @@ const bylawDataSchema = z.object({
   distance_from_other_structures_ft: z.union([z.number().min(0), z.null()]).optional(),
   
   // Attached ADU setbacks
-  attached_adu_setback_rule: z.enum(['same_as_primary', 'custom']).optional(),
+  attached_adu_setback_rule: z.enum(['same_as_primary', 'custom']).nullable().optional(),
   attached_adu_setback_details: z.union([z.string(), z.null()]).optional(),
   
   // Lot coverage
   max_lot_coverage_percent: z.union([z.number().min(0).max(100), z.null()]).optional(),
   max_impervious_surface_percent: z.union([z.number().min(0).max(100), z.null()]).optional(),
   min_landscaped_area_percent: z.union([z.number().min(0).max(100), z.null()]).optional(),
-  adu_coverage_counting: z.enum(['full', 'partial', 'exempt']).optional(),
+  adu_coverage_counting: z.enum(['full', 'partial', 'exempt']).nullable().optional(),
   adu_coverage_explanation: z.union([z.string(), z.null()]).optional(),
   
   // Parking
@@ -74,24 +74,24 @@ const bylawDataSchema = z.object({
     garage: z.boolean().default(true),
     tandem: z.boolean().default(false),
     on_street: z.boolean().default(false),
-  }).optional(),
+  }).nullable().optional(),
   parking_exemptions: z.record(z.union([z.number(), z.boolean(), z.string()])).nullable().optional(),
   driveway_min_width_ft: z.union([z.number().min(0), z.null()]).optional(),
   driveway_max_width_ft: z.union([z.number().min(0), z.null()]).optional(),
   driveway_material_requirements: z.union([z.string(), z.null()]).optional(),
   
   // Design standards
-  architectural_compatibility: z.enum(['must_match', 'compatible_materials', 'none']).optional(),
+  architectural_compatibility: z.enum(['must_match', 'compatible_materials', 'none']).nullable().optional(),
   design_requirements: z.record(z.union([z.boolean(), z.number(), z.string()])).nullable().optional(),
-  entrance_requirements: z.enum(['no_restriction', 'cannot_face_street', 'must_face_street', 'separate_required']).optional(),
+  entrance_requirements: z.enum(['no_restriction', 'cannot_face_street', 'must_face_street', 'separate_required']).nullable().optional(),
   entrance_requirements_details: z.union([z.string(), z.null()]).optional(),
   
   // Utilities
-  utility_connections: z.enum(['may_share', 'separate_required', 'depends_on_size']).optional(),
+  utility_connections: z.enum(['may_share', 'separate_required', 'depends_on_size']).nullable().optional(),
   fire_access_pathway_width_ft: z.union([z.number().min(0), z.null()]).optional(),
   fire_access_max_distance_ft: z.union([z.number().min(0), z.null()]).optional(),
   fire_access_special_requirements: z.union([z.string(), z.null()]).optional(),
-  septic_sewer_requirements: z.enum(['public_sewer_required', 'septic_with_capacity_proof', 'other']).optional(),
+  septic_sewer_requirements: z.enum(['public_sewer_required', 'septic_with_capacity_proof', 'other']).nullable().optional(),
   septic_sewer_details: z.union([z.string(), z.null()]).optional(),
   
   // Fees

@@ -758,6 +758,7 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
   const [bylawData, setBylawData] = useState<MunicipalityBylawData | null>(null)
   const [units, setUnits] = useState<'imperial' | 'metric'>('imperial')
+  const [dataWarnings, setDataWarnings] = useState<string[]>([])
 
   // Unit conversion functions
   const toDisplay = (value: number | null | undefined, isArea = false): string => {
@@ -793,25 +794,82 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
   // Load bylaw data when dialog opens
   // Helper function to clean/migrate legacy enum values
   const cleanBylawData = (data: any) => {
-    if (!data) return data
+    if (!data) return { data, warnings: [] }
 
     const cleaned = { ...data }
+    const warnings: string[] = []
 
-    // Fix legacy enum values
+    // Fix permit_type values
+    if (cleaned.permit_type === 'building_permit') {
+      cleaned.permit_type = 'by_right'
+      warnings.push('Permit Type: "Building Permit" was converted to "By Right"')
+    }
+
+    // Fix owner_occupancy values
     if (cleaned.owner_occupancy_required === 'owner_occupied_required') {
       cleaned.owner_occupancy_required = 'primary_residence'
+      warnings.push('Owner Occupancy: Updated to "Must Live in Primary"')
     }
     if (cleaned.owner_occupancy_required === 'primary_or_secondary') {
       cleaned.owner_occupancy_required = 'either_unit'
+      warnings.push('Owner Occupancy: Updated to "Must Live in Either Unit"')
     }
 
+    // Fix architectural_compatibility values
+    if (cleaned.architectural_compatibility === 'compatible') {
+      cleaned.architectural_compatibility = 'compatible_materials'
+      warnings.push('Architectural Compatibility: "Compatible" was converted to "Compatible Materials"')
+    }
+
+    // Fix entrance_requirements values
     if (cleaned.entrance_requirements === 'separate_entrance_required' ||
         cleaned.entrance_requirements === 'separate_entrance') {
       cleaned.entrance_requirements = 'separate_required'
+      warnings.push('Entrance Requirements: Updated to "Separate Required"')
     }
     if (cleaned.entrance_requirements === 'flexible') {
       cleaned.entrance_requirements = 'no_restriction'
+      warnings.push('Entrance Requirements: "Flexible" was converted to "No Restriction"')
     }
+
+    // Set null for any remaining invalid enum values
+    const validEnums = {
+      permit_type: ['by_right', 'special_permit', 'conditional_use', 'variance'],
+      owner_occupancy_required: ['none', 'primary_residence', 'either_unit'],
+      architectural_compatibility: ['must_match', 'compatible_materials', 'none'],
+      entrance_requirements: ['no_restriction', 'cannot_face_street', 'must_face_street', 'separate_required'],
+      utility_connections: ['may_share', 'separate_required', 'depends_on_size'],
+      septic_sewer_requirements: ['public_sewer_required', 'septic_with_capacity_proof', 'other'],
+      attached_adu_height_rule: ['same_as_primary', 'custom'],
+      attached_adu_setback_rule: ['same_as_primary', 'custom'],
+      adu_coverage_counting: ['full', 'partial', 'exempt']
+    }
+
+    const fieldLabels = {
+      permit_type: 'Permit Type',
+      owner_occupancy_required: 'Owner Occupancy',
+      architectural_compatibility: 'Architectural Compatibility',
+      entrance_requirements: 'Entrance Requirements',
+      utility_connections: 'Utility Connections',
+      septic_sewer_requirements: 'Septic/Sewer Requirements',
+      attached_adu_height_rule: 'Attached ADU Height Rule',
+      attached_adu_setback_rule: 'Attached ADU Setback Rule',
+      adu_coverage_counting: 'ADU Coverage Counting'
+    }
+
+    // Validate and clean each enum field
+    Object.entries(validEnums).forEach(([field, validValues]) => {
+      if (cleaned[field] !== undefined && cleaned[field] !== null) {
+        if (!validValues.includes(cleaned[field])) {
+          const label = fieldLabels[field as keyof typeof fieldLabels] || field
+          warnings.push(`⚠️ ${label}: Invalid value "${cleaned[field]}" was removed. Please select a valid option.`)
+          console.warn(`Invalid ${field} value: "${cleaned[field]}", setting to null`)
+          cleaned[field] = null
+        }
+      }
+    })
+
+    return { data: cleaned, warnings }
 
     if (cleaned.utility_connections === 'separate_connection_required' ||
         cleaned.utility_connections === 'separate_connection_preferred') {
@@ -860,9 +918,10 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
           const response = await fetch(`/api/municipalities/${municipality.id}/bylaw-data`)
           if (response.ok) {
             const result = await response.json()
-            const cleanedData = cleanBylawData(result.bylaw_data)
-            setBylawData(cleanedData)
-            setBylawForm(cleanedData || getDefaultBylawForm())
+            const cleanResult = cleanBylawData(result.bylaw_data)
+            setBylawData(cleanResult.data)
+            setBylawForm(cleanResult.data || getDefaultBylawForm())
+            setDataWarnings(cleanResult.warnings)
           } else {
             setBylawData(null)
             setBylawForm(getDefaultBylawForm())
@@ -974,6 +1033,9 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
       setTimeout(() => {
         onSuccess()
       }, 1000)
+
+      // Note: Dialog will close after success.
+      // For testing, you can comment out the onSuccess() call above to keep it open.
     } catch (error) {
       setSaveMessage({ 
         type: 'error', 
@@ -1005,10 +1067,31 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
           </DialogDescription>
         </DialogHeader>
 
+        {dataWarnings.length > 0 && (
+          <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 dark:bg-amber-950/30 dark:border-amber-800">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+              <div className="text-sm">
+                <p className="font-medium text-amber-800 dark:text-amber-300 mb-1">
+                  Data Corrections Applied
+                </p>
+                <ul className="text-amber-700 dark:text-amber-400 space-y-0.5">
+                  {dataWarnings.map((warning, index) => (
+                    <li key={index}>{warning}</li>
+                  ))}
+                </ul>
+                <p className="text-amber-600 dark:text-amber-500 mt-2 text-xs">
+                  Please review and update these fields to ensure data accuracy.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {saveMessage && (
           <div className={`p-3 rounded-lg flex items-center gap-2 ${
-            saveMessage.type === 'success' 
-              ? 'bg-green-50 border border-green-200 text-green-700 dark:bg-green-950/30 dark:border-green-800 dark:text-green-300' 
+            saveMessage.type === 'success'
+              ? 'bg-green-50 border border-green-200 text-green-700 dark:bg-green-950/30 dark:border-green-800 dark:text-green-300'
               : 'bg-red-50 border border-red-200 text-red-700 dark:bg-red-950/30 dark:border-red-800 dark:text-red-300'
           }`}>
             {saveMessage.type === 'success' ? (

@@ -8,28 +8,19 @@ const getMunicipalitiesQuerySchema = z.object({
   page: z.string().optional().transform(val => val ? parseInt(val, 10) : 1),
   limit: z.string().optional().transform(val => val ? Math.min(parseInt(val, 10), 100) : undefined),
   search: z.string().optional(),
-  status: z.enum(['pending', 'testing', 'confirmed', 'active', 'error', 'running']).optional(),
   hasDocuments: z.string().optional().transform(val => val === 'true'),
-  scheduledOnly: z.string().optional().transform(val => val === 'true'),
-  sort: z.enum(['name', 'created_at', 'updated_at', 'last_run']).optional().default('name'),
+  sort: z.enum(['name', 'created_at', 'updated_at']).optional().default('name'),
   order: z.enum(['asc', 'desc']).optional().default('asc'),
 })
 
 const createMunicipalitySchema = z.object({
   name: z.string().min(1).max(255),
-  website_url: z.string().url(),
-  scraper_name: z.string().max(100).nullable().optional(),
-  schedule_frequency: z.enum(['weekly', 'monthly', 'quarterly']).nullable().optional(),
-  schedule_active: z.boolean().optional().default(false),
+  website_url: z.string().url()
 })
 
 const updateMunicipalitySchema = z.object({
   name: z.string().min(1).max(255).optional(),
-  website_url: z.string().url().optional(),
-  status: z.enum(['pending', 'testing', 'confirmed', 'active', 'error', 'running']).optional(),
-  scraper_name: z.string().max(100).nullable().optional(),
-  schedule_frequency: z.enum(['weekly', 'monthly', 'quarterly']).nullable().optional(),
-  schedule_active: z.boolean().optional(),
+  website_url: z.string().url().optional()
 })
 
 // GET /api/municipalities - List municipalities with filtering and pagination
@@ -41,9 +32,7 @@ export async function GET(request: NextRequest) {
     const limitParam = url.searchParams.get('limit')
     const limit = limitParam ? Math.min(parseInt(limitParam, 10), 100) : null // null means no limit (show all)
     const search = url.searchParams.get('search')
-    const status = url.searchParams.get('status')
     const hasDocuments = url.searchParams.get('hasDocuments') === 'true'
-    const scheduledOnly = url.searchParams.get('scheduledOnly') === 'true'
     const sortBy = url.searchParams.get('sort') || 'name'
     const sortOrder = url.searchParams.get('order') || 'asc'
     const source = url.searchParams.get('source') || 'client' // Default to client
@@ -66,13 +55,6 @@ export async function GET(request: NextRequest) {
       query = query.ilike('name', `%${search}%`)
     }
 
-    if (status) {
-      query = query.eq('status', status)
-    }
-
-    if (scheduledOnly) {
-      query = query.not('schedule_frequency', 'is', null)
-    }
 
     // Apply sorting (validation already ensures valid sortBy)
     query = query.order(sortBy, { ascending: sortOrder === 'asc' })
@@ -217,11 +199,7 @@ export async function POST(request: NextRequest) {
 
     const municipalityData = {
       name: validatedData.name,
-      website_url: validatedData.website_url,
-      scraper_name: validatedData.scraper_name || null,
-      status: 'pending' as const,
-      schedule_frequency: validatedData.schedule_frequency || null,
-      schedule_active: validatedData.schedule_active || false
+      website_url: validatedData.website_url
     }
 
     // Check for duplicate names (case-insensitive)
@@ -249,7 +227,11 @@ export async function POST(request: NextRequest) {
     if (error) {
       console.error('Database error creating municipality:', error)
       return NextResponse.json(
-        { error: 'Failed to create municipality' },
+        {
+          error: 'Failed to create municipality',
+          details: error.message,
+          code: error.code
+        },
         { status: 500 }
       )
     }
