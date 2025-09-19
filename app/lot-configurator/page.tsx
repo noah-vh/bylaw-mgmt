@@ -915,11 +915,26 @@ export default function LotConfigurator() {
   
   // Parse feet and inches string to decimal feet
   const fromFeetAndInches = (value: string): number => {
-    const match = value.match(/(\d+)'?\s*(\d+)?"?/)
-    if (!match) return 0
-    const feet = parseInt(match[1]) || 0
-    const inches = parseInt(match[2]) || 0
-    return feet + inches / 12
+    // Clean the input - remove 'feet', 'ft', etc.
+    const cleaned = value.replace(/\s*(feet|ft\.?|')\s*/gi, "'").trim()
+
+    // Try to match feet and inches pattern (e.g., "132' 6"" or "132'6"")
+    const feetInchesMatch = cleaned.match(/^(\d+(?:\.\d+)?)'?\s*(\d+(?:\.\d+)?)?"?/)
+    if (feetInchesMatch && feetInchesMatch[2]) {
+      const feet = parseFloat(feetInchesMatch[1]) || 0
+      const inches = parseFloat(feetInchesMatch[2]) || 0
+      return feet + inches / 12
+    }
+
+    // Try to parse as just feet (e.g., "132" or "132.5")
+    const feetOnly = cleaned.match(/^(\d+(?:\.\d+)?)'?/)
+    if (feetOnly) {
+      return parseFloat(feetOnly[1]) || 0
+    }
+
+    // Last resort - try to parse as a plain number
+    const num = parseFloat(cleaned)
+    return isNaN(num) ? 0 : num
   }
 
   const getUnitLabel = useCallback((isArea = false) => {
@@ -2692,18 +2707,33 @@ export default function LotConfigurator() {
                         {selectedMunicipalityData?.bylaw_data?.min_lot_width_ft && config.lotWidth < selectedMunicipalityData.bylaw_data.min_lot_width_ft && <span className="text-red-600 text-xs">⚠</span>}
                         <input
                           type="text"
-                          value={config.units === 'imperial' ? toFeetAndInches(config.lotWidth) : `${toDisplay(config.lotWidth)}m`}
-                          onChange={(e) => {
-                            const val = config.units === 'imperial' 
+                          key={`lotWidth-${config.lotWidth}-${config.units}`}
+                          defaultValue={config.units === 'imperial' ? toFeetAndInches(config.lotWidth) : `${toDisplay(config.lotWidth)}`}
+                          onBlur={(e) => {
+                            const val = config.units === 'imperial'
                               ? fromFeetAndInches(e.target.value)
-                              : parseFloat(e.target.value.replace('m', '')) / FEET_TO_METERS
+                              : parseFloat(e.target.value.replace(/[^\d.-]/g, '')) / FEET_TO_METERS
                             if (!isNaN(val) && val > 0) {
                               // Enforce range: 15-300 feet for lot width
                               const clampedVal = Math.min(300, Math.max(15, val))
                               updateConfigValue('lotWidth', clampedVal)
+                              // Update the input to show formatted value
+                              e.target.value = config.units === 'imperial'
+                                ? toFeetAndInches(clampedVal)
+                                : toDisplay(clampedVal).toString()
+                            } else {
+                              // Reset to current value if invalid
+                              e.target.value = config.units === 'imperial'
+                                ? toFeetAndInches(config.lotWidth)
+                                : toDisplay(config.lotWidth).toString()
                             }
                           }}
-                          className={`text-xs font-mono w-12 px-1 py-0.5 border rounded text-right transition-all duration-75 ease-out ${
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.currentTarget.blur()
+                            }
+                          }}
+                          className={`text-xs font-mono w-20 px-1 py-0.5 border rounded text-right transition-all duration-75 ease-out ${
                             selectedMunicipalityData?.bylaw_data?.min_lot_width_ft && config.lotWidth < selectedMunicipalityData.bylaw_data.min_lot_width_ft
                               ? 'border-red-300 bg-red-50 text-red-700'
                               : ''
@@ -2756,18 +2786,33 @@ export default function LotConfigurator() {
                         {selectedMunicipalityData?.bylaw_data?.min_lot_depth_ft && config.lotDepth < selectedMunicipalityData.bylaw_data.min_lot_depth_ft && <span className="text-red-600 text-xs">⚠</span>}
                         <input
                           type="text"
-                          value={config.units === 'imperial' ? toFeetAndInches(config.lotDepth) : `${toDisplay(config.lotDepth)}m`}
-                          onChange={(e) => {
-                            const val = config.units === 'imperial' 
+                          key={`lotDepth-${config.lotDepth}-${config.units}`}
+                          defaultValue={config.units === 'imperial' ? toFeetAndInches(config.lotDepth) : `${toDisplay(config.lotDepth)}`}
+                          onBlur={(e) => {
+                            const val = config.units === 'imperial'
                               ? fromFeetAndInches(e.target.value)
-                              : parseFloat(e.target.value.replace('m', '')) / FEET_TO_METERS
+                              : parseFloat(e.target.value.replace(/[^\d.-]/g, '')) / FEET_TO_METERS
                             if (!isNaN(val) && val > 0) {
                               // Enforce range: 50-300 feet for lot depth
                               const clampedVal = Math.min(300, Math.max(50, val))
                               updateConfigValue('lotDepth', clampedVal)
+                              // Update the input to show formatted value
+                              e.target.value = config.units === 'imperial'
+                                ? toFeetAndInches(clampedVal)
+                                : toDisplay(clampedVal).toString()
+                            } else {
+                              // Reset to current value if invalid
+                              e.target.value = config.units === 'imperial'
+                                ? toFeetAndInches(config.lotDepth)
+                                : toDisplay(config.lotDepth).toString()
                             }
                           }}
-                          className={`text-xs font-mono w-12 px-1 py-0.5 border rounded text-right transition-all duration-75 ease-out ${
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.currentTarget.blur()
+                            }
+                          }}
+                          className={`text-xs font-mono w-20 px-1 py-0.5 border rounded text-right transition-all duration-75 ease-out ${
                             selectedMunicipalityData?.bylaw_data?.min_lot_depth_ft && config.lotDepth < selectedMunicipalityData.bylaw_data.min_lot_depth_ft
                               ? 'border-red-300 bg-red-50 text-red-700'
                               : ''
@@ -2924,16 +2969,30 @@ export default function LotConfigurator() {
                         <Label className="text-xs">Width</Label>
                         <input
                           type="text"
-                          value={config.units === 'imperial' ? toFeetAndInches(config.aduWidth) : `${toDisplay(config.aduWidth)}m`}
-                          onChange={(e) => {
-                            const val = config.units === 'imperial' 
+                          key={`aduWidth-${config.aduWidth}-${config.units}`}
+                          defaultValue={config.units === 'imperial' ? toFeetAndInches(config.aduWidth) : `${toDisplay(config.aduWidth)}`}
+                          onBlur={(e) => {
+                            const val = config.units === 'imperial'
                               ? fromFeetAndInches(e.target.value)
-                              : parseFloat(e.target.value.replace('m', '')) / FEET_TO_METERS
+                              : parseFloat(e.target.value.replace(/[^\d.-]/g, '')) / FEET_TO_METERS
                             if (!isNaN(val) && val > 0) {
-                              updateConfigValue('aduWidth', Math.min(40, Math.max(10, val)))
+                              const clampedVal = Math.min(40, Math.max(10, val))
+                              updateConfigValue('aduWidth', clampedVal)
+                              e.target.value = config.units === 'imperial'
+                                ? toFeetAndInches(clampedVal)
+                                : toDisplay(clampedVal).toString()
+                            } else {
+                              e.target.value = config.units === 'imperial'
+                                ? toFeetAndInches(config.aduWidth)
+                                : toDisplay(config.aduWidth).toString()
                             }
                           }}
-                          className="text-xs font-mono w-10 px-1 py-0.5 border rounded text-right ml-auto transition-all duration-75 ease-out"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.currentTarget.blur()
+                            }
+                          }}
+                          className="text-xs font-mono w-16 px-1 py-0.5 border rounded text-right ml-auto transition-all duration-75 ease-out"
                         />
                       </div>
                       <input
@@ -2955,16 +3014,30 @@ export default function LotConfigurator() {
                         <Label className="text-xs">Depth</Label>
                         <input
                           type="text"
-                          value={config.units === 'imperial' ? toFeetAndInches(config.aduDepth) : `${toDisplay(config.aduDepth)}m`}
-                          onChange={(e) => {
-                            const val = config.units === 'imperial' 
+                          key={`aduDepth-${config.aduDepth}-${config.units}`}
+                          defaultValue={config.units === 'imperial' ? toFeetAndInches(config.aduDepth) : `${toDisplay(config.aduDepth)}`}
+                          onBlur={(e) => {
+                            const val = config.units === 'imperial'
                               ? fromFeetAndInches(e.target.value)
-                              : parseFloat(e.target.value.replace('m', '')) / FEET_TO_METERS
+                              : parseFloat(e.target.value.replace(/[^\d.-]/g, '')) / FEET_TO_METERS
                             if (!isNaN(val) && val > 0) {
-                              updateConfigValue('aduDepth', Math.min(40, Math.max(10, val)))
+                              const clampedVal = Math.min(40, Math.max(10, val))
+                              updateConfigValue('aduDepth', clampedVal)
+                              e.target.value = config.units === 'imperial'
+                                ? toFeetAndInches(clampedVal)
+                                : toDisplay(clampedVal).toString()
+                            } else {
+                              e.target.value = config.units === 'imperial'
+                                ? toFeetAndInches(config.aduDepth)
+                                : toDisplay(config.aduDepth).toString()
                             }
                           }}
-                          className="text-xs font-mono w-10 px-1 py-0.5 border rounded text-right ml-auto transition-all duration-75 ease-out"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.currentTarget.blur()
+                            }
+                          }}
+                          className="text-xs font-mono w-16 px-1 py-0.5 border rounded text-right ml-auto transition-all duration-75 ease-out"
                         />
                       </div>
                       <input
@@ -3015,7 +3088,7 @@ export default function LotConfigurator() {
                           }
                         }}
                         disabled={selectedMunicipalityData?.bylaw_data?.front_setback_min_ft !== undefined}
-                        className={`text-xs font-mono w-10 px-1 py-0.5 border rounded text-right ml-auto transition-all duration-75 ease-out ${
+                        className={`text-xs font-mono w-16 px-1 py-0.5 border rounded text-right ml-auto transition-all duration-75 ease-out ${
                           selectedMunicipalityData?.bylaw_data?.front_setback_min_ft !== undefined 
                             ? 'bg-muted text-muted-foreground cursor-not-allowed' 
                             : ''
@@ -3056,7 +3129,7 @@ export default function LotConfigurator() {
                           }
                         }}
                         disabled={selectedMunicipalityData?.bylaw_data?.rear_setback_standard_ft !== undefined}
-                        className={`text-xs font-mono w-10 px-1 py-0.5 border rounded text-right ml-auto transition-all duration-75 ease-out ${
+                        className={`text-xs font-mono w-16 px-1 py-0.5 border rounded text-right ml-auto transition-all duration-75 ease-out ${
                           selectedMunicipalityData?.bylaw_data?.rear_setback_standard_ft !== undefined 
                             ? 'bg-muted text-muted-foreground cursor-not-allowed' 
                             : ''
@@ -3097,7 +3170,7 @@ export default function LotConfigurator() {
                           }
                         }}
                         disabled={selectedMunicipalityData?.bylaw_data?.side_setback_interior_ft !== undefined}
-                        className={`text-xs font-mono w-10 px-1 py-0.5 border rounded text-right ml-auto transition-all duration-75 ease-out ${
+                        className={`text-xs font-mono w-16 px-1 py-0.5 border rounded text-right ml-auto transition-all duration-75 ease-out ${
                           selectedMunicipalityData?.bylaw_data?.side_setback_interior_ft !== undefined 
                             ? 'bg-muted text-muted-foreground cursor-not-allowed' 
                             : ''
@@ -3140,7 +3213,7 @@ export default function LotConfigurator() {
                         }
                       }}
                       disabled={separationFromBylaws}
-                      className={`text-xs font-mono w-12 px-1 py-0.5 border rounded text-right ml-auto transition-all duration-75 ease-out ${
+                      className={`text-xs font-mono w-16 px-1 py-0.5 border rounded text-right ml-auto transition-all duration-75 ease-out ${
                         separationFromBylaws 
                           ? 'bg-muted text-muted-foreground cursor-not-allowed' 
                           : ''
@@ -3505,17 +3578,30 @@ export default function LotConfigurator() {
                                 <Label className="text-xs">Width</Label>
                                 <input
                                   type="text"
-                                  value={config.units === 'imperial' ? toFeetAndInches(currentWidth) : `${toDisplay(currentWidth)}m`}
-                                  onChange={(e) => {
-                                    const val = config.units === 'imperial' 
+                                  key={`width-${currentWidth}-${config.units}`}
+                                  defaultValue={config.units === 'imperial' ? toFeetAndInches(currentWidth) : `${toDisplay(currentWidth)}`}
+                                  onBlur={(e) => {
+                                    const val = config.units === 'imperial'
                                       ? fromFeetAndInches(e.target.value)
-                                      : parseFloat(e.target.value.replace('m', '')) / FEET_TO_METERS
+                                      : parseFloat(e.target.value.replace(/[^\d.-]/g, '')) / FEET_TO_METERS
                                     if (!isNaN(val) && val > 0) {
                                       updateWidth(val)
+                                      e.target.value = config.units === 'imperial'
+                                        ? toFeetAndInches(val)
+                                        : toDisplay(val).toString()
+                                    } else {
+                                      e.target.value = config.units === 'imperial'
+                                        ? toFeetAndInches(currentWidth)
+                                        : toDisplay(currentWidth).toString()
+                                    }
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.currentTarget.blur()
                                     }
                                   }}
                                   disabled={isADU && aduModule !== 'custom'}
-                                  className={`text-xs font-mono w-12 px-1 py-0.5 border rounded text-right ml-auto transition-all duration-75 ease-out ${
+                                  className={`text-xs font-mono w-16 px-1 py-0.5 border rounded text-right ml-auto transition-all duration-75 ease-out ${
                                     isADU && aduModule !== 'custom'
                                       ? 'bg-muted text-muted-foreground cursor-not-allowed' 
                                       : ''
@@ -3546,17 +3632,30 @@ export default function LotConfigurator() {
                                 <Label className="text-xs">Depth</Label>
                                 <input
                                   type="text"
-                                  value={config.units === 'imperial' ? toFeetAndInches(currentDepth) : `${toDisplay(currentDepth)}m`}
-                                  onChange={(e) => {
-                                    const val = config.units === 'imperial' 
+                                  key={`depth-${currentDepth}-${config.units}`}
+                                  defaultValue={config.units === 'imperial' ? toFeetAndInches(currentDepth) : `${toDisplay(currentDepth)}`}
+                                  onBlur={(e) => {
+                                    const val = config.units === 'imperial'
                                       ? fromFeetAndInches(e.target.value)
-                                      : parseFloat(e.target.value.replace('m', '')) / FEET_TO_METERS
+                                      : parseFloat(e.target.value.replace(/[^\d.-]/g, '')) / FEET_TO_METERS
                                     if (!isNaN(val) && val > 0) {
                                       updateDepth(val)
+                                      e.target.value = config.units === 'imperial'
+                                        ? toFeetAndInches(val)
+                                        : toDisplay(val).toString()
+                                    } else {
+                                      e.target.value = config.units === 'imperial'
+                                        ? toFeetAndInches(currentDepth)
+                                        : toDisplay(currentDepth).toString()
+                                    }
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.currentTarget.blur()
                                     }
                                   }}
                                   disabled={isADU && aduModule !== 'custom'}
-                                  className={`text-xs font-mono w-12 px-1 py-0.5 border rounded text-right ml-auto transition-all duration-75 ease-out ${
+                                  className={`text-xs font-mono w-16 px-1 py-0.5 border rounded text-right ml-auto transition-all duration-75 ease-out ${
                                     isADU && aduModule !== 'custom'
                                       ? 'bg-muted text-muted-foreground cursor-not-allowed' 
                                       : ''
@@ -3593,16 +3692,29 @@ export default function LotConfigurator() {
                                 <Label className="text-xs">X</Label>
                                 <input
                                   type="text"
-                                  value={config.units === 'imperial' ? toFeetAndInches(currentX) : `${toDisplay(currentX)}m`}
-                                  onChange={(e) => {
-                                    const val = config.units === 'imperial' 
+                                  key={`posX-${currentX}-${config.units}`}
+                                  defaultValue={config.units === 'imperial' ? toFeetAndInches(currentX) : `${toDisplay(currentX)}`}
+                                  onBlur={(e) => {
+                                    const val = config.units === 'imperial'
                                       ? fromFeetAndInches(e.target.value)
-                                      : parseFloat(e.target.value.replace('m', '')) / FEET_TO_METERS
+                                      : parseFloat(e.target.value.replace(/[^\d.-]/g, '')) / FEET_TO_METERS
                                     if (!isNaN(val) && val >= 0) {
                                       updateX(val)
+                                      e.target.value = config.units === 'imperial'
+                                        ? toFeetAndInches(val)
+                                        : toDisplay(val).toString()
+                                    } else {
+                                      e.target.value = config.units === 'imperial'
+                                        ? toFeetAndInches(currentX)
+                                        : toDisplay(currentX).toString()
                                     }
                                   }}
-                                  className="text-xs font-mono w-12 px-1 py-0.5 border rounded text-right ml-auto"
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.currentTarget.blur()
+                                    }
+                                  }}
+                                  className="text-xs font-mono w-16 px-1 py-0.5 border rounded text-right ml-auto"
                                 />
                               </div>
                               <input
@@ -3624,16 +3736,29 @@ export default function LotConfigurator() {
                                 <Label className="text-xs">Y</Label>
                                 <input
                                   type="text"
-                                  value={config.units === 'imperial' ? toFeetAndInches(currentY) : `${toDisplay(currentY)}m`}
-                                  onChange={(e) => {
-                                    const val = config.units === 'imperial' 
+                                  key={`posY-${currentY}-${config.units}`}
+                                  defaultValue={config.units === 'imperial' ? toFeetAndInches(currentY) : `${toDisplay(currentY)}`}
+                                  onBlur={(e) => {
+                                    const val = config.units === 'imperial'
                                       ? fromFeetAndInches(e.target.value)
-                                      : parseFloat(e.target.value.replace('m', '')) / FEET_TO_METERS
+                                      : parseFloat(e.target.value.replace(/[^\d.-]/g, '')) / FEET_TO_METERS
                                     if (!isNaN(val) && val >= 0) {
                                       updateY(val)
+                                      e.target.value = config.units === 'imperial'
+                                        ? toFeetAndInches(val)
+                                        : toDisplay(val).toString()
+                                    } else {
+                                      e.target.value = config.units === 'imperial'
+                                        ? toFeetAndInches(currentY)
+                                        : toDisplay(currentY).toString()
                                     }
                                   }}
-                                  className="text-xs font-mono w-12 px-1 py-0.5 border rounded text-right ml-auto"
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.currentTarget.blur()
+                                    }
+                                  }}
+                                  className="text-xs font-mono w-16 px-1 py-0.5 border rounded text-right ml-auto"
                                 />
                               </div>
                               <input
