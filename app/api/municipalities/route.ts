@@ -293,12 +293,6 @@ export async function PATCH(request: NextRequest) {
       )
     }
 
-    // If changing scraper assignment, validate it exists (optional validation)
-    if (validatedData.scraper_name && validatedData.scraper_name !== existingMunicipality.scraper_name) {
-      // Note: We don't strictly validate scraper existence since filesystem scrapers
-      // might not be in the database yet. This allows flexible assignment.
-      console.log(`Assigning scraper '${validatedData.scraper_name}' to municipality '${existingMunicipality.name}'`)
-    }
 
     // Prepare update data
     const updateData = {

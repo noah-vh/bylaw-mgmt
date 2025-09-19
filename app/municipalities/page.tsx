@@ -889,7 +889,7 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
       for (const [key, value] of Object.entries(cleaned.impact_fees)) {
         if (typeof value === 'number') {
           fixedImpactFees[key] = { amount: value, per_sqft: false }
-        } else if (value && typeof value === 'object' && 'amount' in value) {
+        } else if (value && typeof value === 'object' && value !== null && 'amount' in (value as any)) {
           fixedImpactFees[key] = value
         }
       }
@@ -901,7 +901,7 @@ function EditMunicipalityDialog({ municipality, open, onOpenChange, onSuccess }:
       for (const [key, value] of Object.entries(cleaned.permit_fees)) {
         if (typeof value === 'number') {
           fixedPermitFees[key] = { amount: value, per_sqft: false }
-        } else if (value && typeof value === 'object' && 'amount' in value) {
+        } else if (value && typeof value === 'object' && value !== null && 'amount' in (value as any)) {
           fixedPermitFees[key] = value
         }
       }
