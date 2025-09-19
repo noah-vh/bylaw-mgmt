@@ -73,17 +73,24 @@ interface MunicipalityDetailData {
   bylaw_data?: MunicipalityBylawData
 }
 
+// Conversion constants
+const FEET_TO_METERS = 0.3048
+const SQFT_TO_SQM = 0.092903
+
 export default function MunicipalityDetailPage() {
   const params = useParams()
   const municipalityId = params.id as string
-  
+
   const [data, setData] = useState<MunicipalityDetailData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [documentsSearch, setDocumentsSearch] = useState("")
   const [documentsFilter, setDocumentsFilter] = useState<string>("all")
   const [selectedDocument, setSelectedDocument] = useState<(PdfDocument & { municipality?: { name: string } }) | null>(null)
-  
+
+  // Unit state
+  const [units, setUnits] = useState<'imperial' | 'metric'>('imperial')
+
   // Combined editing state
   const [isEditing, setIsEditing] = useState(false)
   const [settingsForm, setSettingsForm] = useState({
@@ -97,6 +104,37 @@ export default function MunicipalityDetailPage() {
   
   // Hook for toggling favorites
   const toggleFavoriteMutation = useToggleDocumentFavorite()
+
+  // Unit conversion functions
+  const toDisplay = (value: number | null | undefined, isArea = false): string => {
+    if (value === null || value === undefined) return ''
+    if (units === 'metric') {
+      if (isArea) {
+        return (value * SQFT_TO_SQM).toFixed(1)
+      }
+      return (value * FEET_TO_METERS).toFixed(1)
+    }
+    return value.toString()
+  }
+
+  const fromDisplay = (value: string, isArea = false): number | null => {
+    const parsed = parseFloat(value)
+    if (isNaN(parsed)) return null
+    if (units === 'metric') {
+      if (isArea) {
+        return parsed / SQFT_TO_SQM
+      }
+      return parsed / FEET_TO_METERS
+    }
+    return parsed
+  }
+
+  const getUnitLabel = (isArea = false): string => {
+    if (units === 'metric') {
+      return isArea ? 'sq m' : 'm'
+    }
+    return isArea ? 'sq ft' : 'ft'
+  }
 
   useEffect(() => {
     const fetchMunicipalityDetail = async () => {
@@ -134,22 +172,14 @@ export default function MunicipalityDetailPage() {
         if (dataWithBylaws.bylaw_data) {
           setBylawForm(dataWithBylaws.bylaw_data)
         } else {
-          // Initialize with default values
+          // Initialize with minimal defaults - only set values that make logical sense
           setBylawForm({
             municipality_id: parseInt(municipalityId),
-            permit_type: 'special_permit',
-            owner_occupancy_required: 'none',
-            max_primary_dwellings: 1,
-            max_adus: 1,
-            max_total_units: 2,
-            attached_adu_height_rule: 'same_as_primary',
-            attached_adu_setback_rule: 'same_as_primary',
-            adu_coverage_counting: 'full',
-            adu_parking_spaces_required: 1,
-            architectural_compatibility: 'none',
-            entrance_requirements: 'no_restriction',
-            utility_connections: 'may_share',
-            septic_sewer_requirements: 'public_sewer_required',
+            max_primary_dwellings: 1,  // Most lots have 1 primary dwelling
+            max_adus: 1,  // Most allow 1 ADU
+            max_total_units: 2,  // Total of primary + ADU
+            adu_parking_spaces_required: 1,  // Common requirement
+            // Leave enum fields without defaults so users must explicitly choose
             adu_types_allowed: {
               detached: false,
               attached: false,
@@ -279,22 +309,14 @@ export default function MunicipalityDetailPage() {
       if (data.bylaw_data) {
         setBylawForm(data.bylaw_data)
       } else {
-        // Initialize with default values
+        // Initialize with minimal defaults - only set values that make logical sense
         setBylawForm({
           municipality_id: parseInt(municipalityId),
-          permit_type: 'special_permit',
-          owner_occupancy_required: 'none',
-          max_primary_dwellings: 1,
-          max_adus: 1,
-          max_total_units: 2,
-          attached_adu_height_rule: 'same_as_primary',
-          attached_adu_setback_rule: 'same_as_primary',
-          adu_coverage_counting: 'full',
-          adu_parking_spaces_required: 1,
-          architectural_compatibility: 'none',
-          entrance_requirements: 'no_restriction',
-          utility_connections: 'may_share',
-          septic_sewer_requirements: 'public_sewer_required',
+          max_primary_dwellings: 1,  // Most lots have 1 primary dwelling
+          max_adus: 1,  // Most allow 1 ADU
+          max_total_units: 2,  // Total of primary + ADU
+          adu_parking_spaces_required: 1,  // Common requirement
+          // Leave enum fields without defaults so users must explicitly choose
           adu_types_allowed: {
             detached: false,
             attached: false,
@@ -604,7 +626,8 @@ export default function MunicipalityDetailPage() {
                     Configure ADU requirements and regulations for this municipality
                   </CardDescription>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex items-center gap-4">
+                  {/* Edit/Save Buttons */}
                   {isEditing ? (
                     <>
                       <Button variant="outline" onClick={handleCancelEditing} disabled={saving}>
@@ -628,11 +651,38 @@ export default function MunicipalityDetailPage() {
                   )}
                 </div>
               </div>
+              {/* Bylaw Information Header with Units Toggle */}
+              <div className="flex items-center justify-between pt-4 border-t">
+                <h3 className="text-lg font-semibold">Bylaw Information</h3>
+                {/* Unit Toggle */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Units:</span>
+                  <div className="flex border border-border rounded-md overflow-hidden">
+                    <Button
+                      variant={units === 'imperial' ? 'default' : 'ghost'}
+                      size="sm"
+                      onClick={() => setUnits('imperial')}
+                      className="h-7 px-3 text-xs rounded-none border-0"
+                      type="button"
+                    >
+                      Imperial (ft)
+                    </Button>
+                    <Button
+                      variant={units === 'metric' ? 'default' : 'ghost'}
+                      size="sm"
+                      onClick={() => setUnits('metric')}
+                      className="h-7 px-3 text-xs rounded-none border-0"
+                      type="button"
+                    >
+                      Metric (m)
+                    </Button>
+                  </div>
+                </div>
+              </div>
             </CardHeader>
             <CardContent className="space-y-6">
               {/* Basic Information */}
               <div className="space-y-4">
-                <h3 className="text-lg font-semibold">Basic Information</h3>
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="ordinance">Bylaw/Ordinance Number</Label>
@@ -670,6 +720,38 @@ export default function MunicipalityDetailPage() {
                 </div>
               </div>
 
+              {/* Permit Type */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Permit Type</h3>
+                <div className="space-y-2">
+                  <Label htmlFor="permit_type">Permit Type Required</Label>
+                  {isEditing ? (
+                    <Select
+                      value={bylawForm.permit_type || ''}
+                      onValueChange={(value) => updateBylawForm('permit_type', value || null)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select permit type (optional)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="by_right">By Right</SelectItem>
+                        <SelectItem value="special_permit">Special Permit</SelectItem>
+                        <SelectItem value="conditional_use">Conditional Use</SelectItem>
+                        <SelectItem value="variance">Variance</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <div className="p-2 bg-muted rounded-md">
+                      {data?.bylaw_data?.permit_type === 'by_right' ? 'By Right' :
+                       data?.bylaw_data?.permit_type === 'special_permit' ? 'Special Permit' :
+                       data?.bylaw_data?.permit_type === 'conditional_use' ? 'Conditional Use' :
+                       data?.bylaw_data?.permit_type === 'variance' ? 'Variance' :
+                       'Not specified'}
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* ADU Types Allowed */}
               <div className="space-y-4">
                 <h3 className="text-lg font-semibold">ADU Types Allowed</h3>
@@ -696,9 +778,39 @@ export default function MunicipalityDetailPage() {
                 </div>
               </div>
 
+              {/* Owner Occupancy Requirements */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Owner Occupancy Requirements</h3>
+                <div className="space-y-2">
+                  <Label htmlFor="owner_occupancy">Owner Occupancy Requirement</Label>
+                  {isEditing ? (
+                    <Select
+                      value={bylawForm.owner_occupancy_required || ''}
+                      onValueChange={(value) => updateBylawForm('owner_occupancy_required', value || null)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select requirement (optional)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No Requirement</SelectItem>
+                        <SelectItem value="primary_residence">Primary Residence</SelectItem>
+                        <SelectItem value="either_unit">Either Unit</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <div className="p-2 bg-muted rounded-md">
+                      {data?.bylaw_data?.owner_occupancy_required === 'none' ? 'No Requirement' :
+                       data?.bylaw_data?.owner_occupancy_required === 'primary_residence' ? 'Primary Residence' :
+                       data?.bylaw_data?.owner_occupancy_required === 'either_unit' ? 'Either Unit' :
+                       'Not specified'}
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* Setback Requirements */}
               <div className="space-y-4">
-                <h3 className="text-lg font-semibold">Setback Requirements (ft)</h3>
+                <h3 className="text-lg font-semibold">Setback Requirements ({getUnitLabel()})</h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="front_setback">Front Setback (min)</Label>
@@ -707,12 +819,12 @@ export default function MunicipalityDetailPage() {
                         id="front_setback"
                         type="number"
                         step="0.1"
-                        value={bylawForm.front_setback_min_ft || ''}
-                        onChange={(e) => updateBylawForm('front_setback_min_ft', e.target.value ? parseFloat(e.target.value) : null)}
+                        value={toDisplay(bylawForm.front_setback_min_ft)}
+                        onChange={(e) => updateBylawForm('front_setback_min_ft', fromDisplay(e.target.value))}
                       />
                     ) : (
                       <div className="p-2 bg-muted rounded-md">
-                        {data?.bylaw_data?.front_setback_min_ft ? `${data.bylaw_data.front_setback_min_ft} ft` : 'Not specified'}
+                        {data?.bylaw_data?.front_setback_min_ft ? `${toDisplay(data.bylaw_data.front_setback_min_ft)} ${getUnitLabel()}` : 'Not specified'}
                       </div>
                     )}
                   </div>
@@ -723,12 +835,12 @@ export default function MunicipalityDetailPage() {
                         id="rear_setback"
                         type="number"
                         step="0.1"
-                        value={bylawForm.rear_setback_standard_ft || ''}
-                        onChange={(e) => updateBylawForm('rear_setback_standard_ft', e.target.value ? parseFloat(e.target.value) : null)}
+                        value={toDisplay(bylawForm.rear_setback_standard_ft)}
+                        onChange={(e) => updateBylawForm('rear_setback_standard_ft', fromDisplay(e.target.value))}
                       />
                     ) : (
                       <div className="p-2 bg-muted rounded-md">
-                        {data?.bylaw_data?.rear_setback_standard_ft ? `${data.bylaw_data.rear_setback_standard_ft} ft` : 'Not specified'}
+                        {data?.bylaw_data?.rear_setback_standard_ft ? `${toDisplay(data.bylaw_data.rear_setback_standard_ft)} ${getUnitLabel()}` : 'Not specified'}
                       </div>
                     )}
                   </div>
@@ -739,12 +851,12 @@ export default function MunicipalityDetailPage() {
                         id="side_setback"
                         type="number"
                         step="0.1"
-                        value={bylawForm.side_setback_interior_ft || ''}
-                        onChange={(e) => updateBylawForm('side_setback_interior_ft', e.target.value ? parseFloat(e.target.value) : null)}
+                        value={toDisplay(bylawForm.side_setback_interior_ft)}
+                        onChange={(e) => updateBylawForm('side_setback_interior_ft', fromDisplay(e.target.value))}
                       />
                     ) : (
                       <div className="p-2 bg-muted rounded-md">
-                        {data?.bylaw_data?.side_setback_interior_ft ? `${data.bylaw_data.side_setback_interior_ft} ft` : 'Not specified'}
+                        {data?.bylaw_data?.side_setback_interior_ft ? `${toDisplay(data.bylaw_data.side_setback_interior_ft)} ${getUnitLabel()}` : 'Not specified'}
                       </div>
                     )}
                   </div>
@@ -756,48 +868,48 @@ export default function MunicipalityDetailPage() {
                 <h3 className="text-lg font-semibold">ADU Size Limits</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="min_size">Minimum Size (sq ft)</Label>
+                    <Label htmlFor="min_size">Minimum Size ({getUnitLabel(true)})</Label>
                     {isEditing ? (
                       <Input
                         id="min_size"
                         type="number"
-                        value={bylawForm.detached_adu_min_size_sqft || ''}
-                        onChange={(e) => updateBylawForm('detached_adu_min_size_sqft', e.target.value ? parseInt(e.target.value) : null)}
+                        value={toDisplay(bylawForm.detached_adu_min_size_sqft, true)}
+                        onChange={(e) => updateBylawForm('detached_adu_min_size_sqft', fromDisplay(e.target.value, true) ? Math.round(fromDisplay(e.target.value, true)!) : null)}
                       />
                     ) : (
                       <div className="p-2 bg-muted rounded-md">
-                        {data?.bylaw_data?.detached_adu_min_size_sqft ? `${data.bylaw_data.detached_adu_min_size_sqft} sq ft` : 'Not specified'}
+                        {data?.bylaw_data?.detached_adu_min_size_sqft ? `${toDisplay(data.bylaw_data.detached_adu_min_size_sqft, true)} ${getUnitLabel(true)}` : 'Not specified'}
                       </div>
                     )}
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="max_size">Maximum Size (sq ft)</Label>
+                    <Label htmlFor="max_size">Maximum Size ({getUnitLabel(true)})</Label>
                     {isEditing ? (
                       <Input
                         id="max_size"
                         type="number"
-                        value={bylawForm.detached_adu_max_size_sqft || ''}
-                        onChange={(e) => updateBylawForm('detached_adu_max_size_sqft', e.target.value ? parseInt(e.target.value) : null)}
+                        value={toDisplay(bylawForm.detached_adu_max_size_sqft, true)}
+                        onChange={(e) => updateBylawForm('detached_adu_max_size_sqft', fromDisplay(e.target.value, true) ? Math.round(fromDisplay(e.target.value, true)!) : null)}
                       />
                     ) : (
                       <div className="p-2 bg-muted rounded-md">
-                        {data?.bylaw_data?.detached_adu_max_size_sqft ? `${data.bylaw_data.detached_adu_max_size_sqft} sq ft` : 'Not specified'}
+                        {data?.bylaw_data?.detached_adu_max_size_sqft ? `${toDisplay(data.bylaw_data.detached_adu_max_size_sqft, true)} ${getUnitLabel(true)}` : 'Not specified'}
                       </div>
                     )}
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="max_height">Maximum Height (ft)</Label>
+                    <Label htmlFor="max_height">Maximum Height ({getUnitLabel()})</Label>
                     {isEditing ? (
                       <Input
                         id="max_height"
                         type="number"
                         step="0.1"
-                        value={bylawForm.detached_adu_max_height_ft || ''}
-                        onChange={(e) => updateBylawForm('detached_adu_max_height_ft', e.target.value ? parseFloat(e.target.value) : null)}
+                        value={toDisplay(bylawForm.detached_adu_max_height_ft)}
+                        onChange={(e) => updateBylawForm('detached_adu_max_height_ft', fromDisplay(e.target.value))}
                       />
                     ) : (
                       <div className="p-2 bg-muted rounded-md">
-                        {data?.bylaw_data?.detached_adu_max_height_ft ? `${data.bylaw_data.detached_adu_max_height_ft} ft` : 'Not specified'}
+                        {data?.bylaw_data?.detached_adu_max_height_ft ? `${toDisplay(data.bylaw_data.detached_adu_max_height_ft)} ${getUnitLabel()}` : 'Not specified'}
                       </div>
                     )}
                   </div>
@@ -839,6 +951,200 @@ export default function MunicipalityDetailPage() {
                       {data?.bylaw_data?.adu_parking_spaces_required ?? 'Not specified'} spaces
                     </div>
                   )}
+                </div>
+              </div>
+
+              {/* Design Standards */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Design Standards</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="architectural_compatibility">Architectural Compatibility</Label>
+                    {isEditing ? (
+                      <Select
+                        value={bylawForm.architectural_compatibility || ''}
+                        onValueChange={(value) => updateBylawForm('architectural_compatibility', value || null)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select compatibility (optional)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="must_match">Must Match</SelectItem>
+                          <SelectItem value="compatible_materials">Compatible Materials</SelectItem>
+                          <SelectItem value="none">No Requirement</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <div className="p-2 bg-muted rounded-md">
+                        {data?.bylaw_data?.architectural_compatibility === 'must_match' ? 'Must Match' :
+                         data?.bylaw_data?.architectural_compatibility === 'compatible_materials' ? 'Compatible Materials' :
+                         data?.bylaw_data?.architectural_compatibility === 'none' ? 'No Requirement' :
+                         'Not specified'}
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="entrance_requirements">Entrance Requirements</Label>
+                    {isEditing ? (
+                      <Select
+                        value={bylawForm.entrance_requirements || ''}
+                        onValueChange={(value) => updateBylawForm('entrance_requirements', value || null)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select entrance (optional)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="no_restriction">No Restriction</SelectItem>
+                          <SelectItem value="cannot_face_street">Cannot Face Street</SelectItem>
+                          <SelectItem value="must_face_street">Must Face Street</SelectItem>
+                          <SelectItem value="separate_required">Separate Required</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <div className="p-2 bg-muted rounded-md">
+                        {data?.bylaw_data?.entrance_requirements === 'no_restriction' ? 'No Restriction' :
+                         data?.bylaw_data?.entrance_requirements === 'cannot_face_street' ? 'Cannot Face Street' :
+                         data?.bylaw_data?.entrance_requirements === 'must_face_street' ? 'Must Face Street' :
+                         data?.bylaw_data?.entrance_requirements === 'separate_required' ? 'Separate Required' :
+                         'Not specified'}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Utilities */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Utilities</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="utility_connections">Utility Connections</Label>
+                    {isEditing ? (
+                      <Select
+                        value={bylawForm.utility_connections || ''}
+                        onValueChange={(value) => updateBylawForm('utility_connections', value || null)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select utility (optional)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="may_share">May Share</SelectItem>
+                          <SelectItem value="separate_required">Separate Required</SelectItem>
+                          <SelectItem value="depends_on_size">Depends on Size</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <div className="p-2 bg-muted rounded-md">
+                        {data?.bylaw_data?.utility_connections === 'may_share' ? 'May Share' :
+                         data?.bylaw_data?.utility_connections === 'separate_required' ? 'Separate Required' :
+                         data?.bylaw_data?.utility_connections === 'depends_on_size' ? 'Depends on Size' :
+                         'Not specified'}
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="septic_sewer_requirements">Septic/Sewer Requirements</Label>
+                    {isEditing ? (
+                      <Select
+                        value={bylawForm.septic_sewer_requirements || ''}
+                        onValueChange={(value) => updateBylawForm('septic_sewer_requirements', value || null)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select sewer (optional)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="public_sewer_required">Public Sewer Required</SelectItem>
+                          <SelectItem value="septic_with_capacity_proof">Septic with Capacity Proof</SelectItem>
+                          <SelectItem value="other">Other</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <div className="p-2 bg-muted rounded-md">
+                        {data?.bylaw_data?.septic_sewer_requirements === 'public_sewer_required' ? 'Public Sewer Required' :
+                         data?.bylaw_data?.septic_sewer_requirements === 'septic_with_capacity_proof' ? 'Septic with Capacity Proof' :
+                         data?.bylaw_data?.septic_sewer_requirements === 'other' ? 'Other' :
+                         'Not specified'}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Coverage and Height Rules */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Coverage and Height Rules</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="adu_coverage_counting">ADU Coverage Counting</Label>
+                    {isEditing ? (
+                      <Select
+                        value={bylawForm.adu_coverage_counting || ''}
+                        onValueChange={(value) => updateBylawForm('adu_coverage_counting', value || null)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select coverage (optional)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="full">Full</SelectItem>
+                          <SelectItem value="partial">Partial</SelectItem>
+                          <SelectItem value="exempt">Exempt</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <div className="p-2 bg-muted rounded-md">
+                        {data?.bylaw_data?.adu_coverage_counting === 'full' ? 'Full' :
+                         data?.bylaw_data?.adu_coverage_counting === 'partial' ? 'Partial' :
+                         data?.bylaw_data?.adu_coverage_counting === 'exempt' ? 'Exempt' :
+                         'Not specified'}
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="attached_adu_height_rule">Attached ADU Height Rule</Label>
+                    {isEditing ? (
+                      <Select
+                        value={bylawForm.attached_adu_height_rule || ''}
+                        onValueChange={(value) => updateBylawForm('attached_adu_height_rule', value || null)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select height rule (optional)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="same_as_primary">Same as Primary</SelectItem>
+                          <SelectItem value="custom">Custom</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <div className="p-2 bg-muted rounded-md">
+                        {data?.bylaw_data?.attached_adu_height_rule === 'same_as_primary' ? 'Same as Primary' :
+                         data?.bylaw_data?.attached_adu_height_rule === 'custom' ? 'Custom' :
+                         'Not specified'}
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="attached_adu_setback_rule">Attached ADU Setback Rule</Label>
+                    {isEditing ? (
+                      <Select
+                        value={bylawForm.attached_adu_setback_rule || ''}
+                        onValueChange={(value) => updateBylawForm('attached_adu_setback_rule', value || null)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select setback rule (optional)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="same_as_primary">Same as Primary</SelectItem>
+                          <SelectItem value="custom">Custom</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <div className="p-2 bg-muted rounded-md">
+                        {data?.bylaw_data?.attached_adu_setback_rule === 'same_as_primary' ? 'Same as Primary' :
+                         data?.bylaw_data?.attached_adu_setback_rule === 'custom' ? 'Custom' :
+                         'Not specified'}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
